@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>加班系統</title>
+  <script src="https://static.line-scdn.net/liff/edge/versions/2.22.3/sdk.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; padding-bottom: 80px; }
+
+    /* 頂部 Header */
+    .header {
+      background: #06C755; color: #fff; padding: 16px 20px;
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 10;
+    }
+    .header h1 { font-size: 18px; font-weight: 600; }
+    .header .user-name { font-size: 13px; opacity: 0.88; }
+
+    /* Tab 導航 */
+    .tabs {
+      display: flex; background: #fff; border-bottom: 1.5px solid #e8e8e8;
+      position: sticky; top: 53px; z-index: 9;
+    }
+    .tab {
+      flex: 1; padding: 14px 0; text-align: center; font-size: 14px;
+      color: #888; cursor: pointer; border-bottom: 2.5px solid transparent;
+      transition: all 0.2s;
+    }
+    .tab.active { color: #06C755; border-bottom-color: #06C755; font-weight: 600; }
+
+    /* 內容區 */
+    .panel { display: none; padding: 20px 16px; }
+    .panel.active { display: block; }
+
+    /* 卡片 */
+    .card {
+      background: #fff; border-radius: 14px; padding: 20px;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.06); margin-bottom: 16px;
+    }
+    .card-title { font-size: 15px; font-weight: 600; color: #1a1a1a; margin-bottom: 16px; }
+
+    /* 表單 */
+    .form-group { margin-bottom: 16px; }
+    .form-label { font-size: 13px; color: #555; margin-bottom: 6px; display: block; font-weight: 500; }
+    .form-control {
+      width: 100%; padding: 12px 14px; border: 1.5px solid #e0e0e0;
+      border-radius: 10px; font-size: 15px; outline: none;
+      transition: border-color 0.2s; background: #fff;
+    }
+    .form-control:focus { border-color: #06C755; }
+    select.form-control { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; padding-right: 36px; }
+
+    /* 時數選擇器 */
+    .duration-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .duration-btn {
+      padding: 10px 0; border: 1.5px solid #e0e0e0; border-radius: 8px;
+      text-align: center; font-size: 14px; cursor: pointer;
+      background: #fff; color: #333; transition: all 0.15s;
+    }
+    .duration-btn.selected { background: #06C755; color: #fff; border-color: #06C755; }
+
+    /* 提交按鈕 */
+    .btn-submit {
+      width: 100%; padding: 14px; background: #06C755; color: #fff; border: none;
+      border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer;
+      transition: opacity 0.2s; margin-top: 4px;
+    }
+    .btn-submit:hover { opacity: 0.88; }
+    .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* 記錄列表 */
+    .filter-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .filter-chip {
+      padding: 7px 14px; border: 1.5px solid #e0e0e0; border-radius: 20px;
+      font-size: 13px; cursor: pointer; background: #fff; color: #555;
+      transition: all 0.15s;
+    }
+    .filter-chip.active { background: #06C755; color: #fff; border-color: #06C755; }
+    .custom-range { display: none; gap: 8px; align-items: center; margin-bottom: 16px; }
+    .custom-range.show { display: flex; }
+    .custom-range input { flex: 1; padding: 9px 12px; border: 1.5px solid #e0e0e0; border-radius: 8px; font-size: 14px; }
+    .custom-range .btn-go {
+      padding: 9px 16px; background: #06C755; color: #fff; border: none;
+      border-radius: 8px; font-size: 14px; cursor: pointer;
+    }
+
+    .summary-bar {
+      background: #E8F5E9; border-radius: 10px; padding: 12px 16px;
+      margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;
+    }
+    .summary-bar span { font-size: 13px; color: #2E7D32; }
+    .summary-bar strong { font-size: 16px; color: #1B5E20; }
+
+    .record-item {
+      padding: 14px 0; border-bottom: 1px solid #f0f0f0;
+      display: flex; justify-content: space-between; align-items: flex-start;
+    }
+    .record-item:last-child { border-bottom: none; }
+    .record-left .date { font-size: 14px; font-weight: 600; color: #1a1a1a; }
+    .record-left .shift { font-size: 13px; color: #666; margin-top: 2px; }
+    .record-right { text-align: right; }
+    .record-right .mins { font-size: 15px; font-weight: 600; color: #333; }
+    .record-right .status { margin-top: 4px; }
+    .btn-cancel {
+      margin-top: 6px; padding: 4px 12px; border: 1px solid #e53935;
+      border-radius: 6px; color: #e53935; font-size: 12px;
+      background: none; cursor: pointer;
+    }
+    .empty { text-align: center; color: #aaa; font-size: 14px; padding: 40px 0; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>加班系統</h1>
+  <span class="user-name" id="user-name">載入中…</span>
+</div>
+
+<div class="tabs">
+  <div class="tab active" id="tab-submit">📋 申報加班</div>
+  <div class="tab" id="tab-records">🔍 我的記錄</div>
+</div>
+
+<!-- 申報加班 -->
+<div class="panel active" id="panel-submit">
+  <div class="card">
+    <div class="card-title">新增加班申請</div>
+
+    <div class="form-group">
+      <label class="form-label">加班日期</label>
+      <input type="date" class="form-control" id="work-date">
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">班別</label>
+      <select class="form-control" id="shift-type">
+        <option value="">請選擇班別</option>
+        <option value="7-3">早班（7-3）</option>
+        <option value="9-5">日班（9-5）</option>
+        <option value="10-6">午班（10-6）</option>
+        <option value="其他">其他</option>
+      </select>
+    </div>
+
+    <div class="form-group" id="other-shift-group" style="display:none">
+      <label class="form-label">班別說明</label>
+      <input type="text" class="form-control" id="other-shift-text" placeholder="例如：急診支援">
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">加班時數</label>
+      <div class="duration-grid" id="duration-grid"></div>
+    </div>
+
+    <button class="btn-submit" id="submit-btn">送出申請</button>
+  </div>
+</div>
+
+<!-- 我的記錄 -->
+<div class="panel" id="panel-records">
+  <div class="filter-row">
+    <div class="filter-chip active" data-filter="recent">最近 20 筆</div>
+    <div class="filter-chip" data-filter="month">本月</div>
+    <div class="filter-chip" data-filter="custom">自訂區間</div>
+  </div>
+  <div class="custom-range" id="custom-range">
+    <input type="date" id="range-start">
+    <span style="color:#aaa;font-size:13px">～</span>
+    <input type="date" id="range-end">
+    <button class="btn-go" id="range-go">查詢</button>
+  </div>
+  <div class="summary-bar" id="summary-bar" style="display:none">
+    <span>共 <strong id="rec-count">0</strong> 筆</span>
+    <span>合計 <strong id="rec-total">—</strong></span>
+  </div>
+  <div class="card" style="padding:8px 16px">
+    <div id="records-list"><div class="empty">載入中…</div></div>
+  </div>
+</div>
+
+<script src="share.js"></script>
+<script>
+  let selectedMinutes = 0;
+  let currentFilter = "recent";
+
+  // 頁面載入就立刻建立時數格子，不等 LIFF
+  (function buildDurationGrid() {
+    const grid = document.getElementById("duration-grid");
+    const options = [];
+    for (let h = 0; h <= 4; h++) {
+      for (let m = 0; m < 60; m += 15) {
+        const total = h * 60 + m;
+        if (total === 0) continue;
+        if (total > 240) break;
+        let label;
+        if (h === 0) label = `${m}分`;
+        else if (m === 0) label = `${h}小時`;
+        else label = `${h}時${m}分`;
+        options.push({ total, label });
+      }
+    }
+    options.push({ total: 240, label: "4小時" });
+    // 去重
+    const seen = new Set();
+    const unique = options.filter(o => seen.has(o.total) ? false : seen.add(o.total));
+    grid.innerHTML = unique.map(o =>
+      `<div class="duration-btn" data-min="${o.total}">${o.label}</div>`
+    ).join("");
+
+    // 綁定時數格子點擊
+    grid.querySelectorAll(".duration-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        selectedMinutes = parseInt(btn.dataset.min);
+        grid.querySelectorAll(".duration-btn").forEach(b => b.classList.remove("selected"));
+        btn.classList.add("selected");
+      });
+    });
+  })();
+
+  function selectDuration(min, el) {
+    selectedMinutes = min;
+    document.querySelectorAll(".duration-btn").forEach(b => b.classList.remove("selected"));
+    el.classList.add("selected");
+  }
+
+  function onShiftChange() {
+    const val = document.getElementById("shift-type").value;
+    document.getElementById("other-shift-group").style.display = val === "其他" ? "block" : "none";
+  }
+
+  async function submitOvertime() {
+    const workDate = document.getElementById("work-date").value;
+    const shiftType = document.getElementById("shift-type").value;
+    const otherText = document.getElementById("other-shift-text").value.trim();
+
+    showToast(`送出中... userId:${getLineUserId() ? "有" : "無"} 日期:${workDate} 班別:${shiftType} 時數:${selectedMinutes}`);
+
+    if (!workDate) { showToast("請選擇加班日期", false); return; }
+    if (!shiftType) { showToast("請選擇班別", false); return; }
+    if (shiftType === "其他" && !otherText) { showToast("請輸入班別說明", false); return; }
+    if (!selectedMinutes) { showToast("請選擇加班時數", false); return; }
+    if (!getLineUserId()) { showToast("尚未登入，請重新開啟", false); return; }
+
+    const btn = document.getElementById("submit-btn");
+    btn.disabled = true; btn.textContent = "送出中…";
+    loading(true);
+
+    try {
+      const res = await apiFetch("/api/overtime", {
+        method: "POST",
+        body: JSON.stringify({
+          work_date: workDate,
+          shift_type: shiftType,
+          other_shift_text: otherText || null,
+          overtime_minutes: selectedMinutes,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "送出失敗");
+      }
+      showToast("已送出申請，等待審核");
+      // 重置表單
+      document.getElementById("work-date").value = "";
+      document.getElementById("shift-type").value = "";
+      document.getElementById("other-shift-text").value = "";
+      document.getElementById("other-shift-group").style.display = "none";
+      selectedMinutes = 0;
+      document.querySelectorAll(".duration-btn").forEach(b => b.classList.remove("selected"));
+    } catch (e) {
+      showToast(e.message, false);
+    } finally {
+      btn.disabled = false; btn.textContent = "送出申請";
+      loading(false);
+    }
+  }
+
+  // 記錄查詢
+  function setFilter(type, el) {
+    currentFilter = type;
+    document.querySelectorAll(".filter-chip").forEach(c => c.classList.remove("active"));
+    el.classList.add("active");
+    document.getElementById("custom-range").classList.toggle("show", type === "custom");
+    if (type !== "custom") loadRecords();
+  }
+
+  async function loadRecords() {
+    loading(true);
+    let url = "/api/records/me";
+    const now = new Date();
+
+    if (currentFilter === "month") {
+      const ym = now.toISOString().slice(0, 7);
+      url += `?month=${ym}`;
+    } else if (currentFilter === "custom") {
+      const s = document.getElementById("range-start").value;
+      const e = document.getElementById("range-end").value;
+      if (!s || !e) { loading(false); return; }
+      url += `?start=${s}&end=${e}`;
+    }
+
+    try {
+      const res = await apiFetch(url);
+      const data = await res.json();
+      renderRecords(data.records, data.total_minutes, data.count);
+    } catch (e) {
+      document.getElementById("records-list").innerHTML = `<div class="empty">查詢失敗</div>`;
+    } finally {
+      loading(false);
+    }
+  }
+
+  function renderRecords(records, totalMin, count) {
+    const summaryBar = document.getElementById("summary-bar");
+    document.getElementById("rec-count").textContent = count;
+    document.getElementById("rec-total").textContent = formatMinutes(totalMin);
+    summaryBar.style.display = count > 0 ? "flex" : "none";
+
+    if (!records || records.length === 0) {
+      document.getElementById("records-list").innerHTML = `<div class="empty">此區間沒有記錄</div>`;
+      return;
+    }
+
+    document.getElementById("records-list").innerHTML = records.map(r => `
+      <div class="record-item">
+        <div class="record-left">
+          <div class="date">${r.work_date}</div>
+          <div class="shift">${shiftLabel(r)}</div>
+        </div>
+        <div class="record-right">
+          <div class="mins">${formatMinutes(r.overtime_minutes)}</div>
+          <div class="status">${statusBadge(r.status)}</div>
+          ${r.status === "審核中" ? `<button class="btn-cancel" data-id="${r.id}">取消申請</button>` : ""}
+        </div>
+      </div>
+    `).join("");
+
+    // 綁定取消按鈕
+    document.querySelectorAll(".btn-cancel[data-id]").forEach(btn => {
+      btn.addEventListener("click", () => cancelRecord(parseInt(btn.dataset.id)));
+    });
+  }
+
+  async function cancelRecord(id) {
+    if (!confirm("確定要取消這筆申請嗎？")) return;
+    loading(true);
+    try {
+      const res = await apiFetch(`/api/overtime/${id}/cancel`, { method: "POST" });
+      if (!res.ok) throw new Error("取消失敗");
+      showToast("已取消申請");
+      loadRecords();
+    } catch (e) {
+      showToast(e.message, false);
+    } finally {
+      loading(false);
+    }
+  }
+
+  function switchTab(tab) {
+    document.querySelectorAll(".tab").forEach((t, i) => {
+      t.classList.toggle("active", (i === 0 && tab === "submit") || (i === 1 && tab === "records"));
+    });
+    document.getElementById("panel-submit").classList.toggle("active", tab === "submit");
+    document.getElementById("panel-records").classList.toggle("active", tab === "records");
+    if (tab === "records") loadRecords();
+  }
+
+  // ── 事件綁定（取代 inline onclick）──────────────────────────────────────
+  document.getElementById("submit-btn").addEventListener("click", submitOvertime);
+  document.getElementById("shift-type").addEventListener("change", onShiftChange);
+  document.getElementById("range-go").addEventListener("click", loadRecords);
+
+  document.getElementById("tab-submit").addEventListener("click", () => switchTab("submit"));
+  document.getElementById("tab-records").addEventListener("click", () => switchTab("records"));
+
+  document.querySelectorAll(".filter-chip[data-filter]").forEach(el => {
+    el.addEventListener("click", () => setFilter(el.dataset.filter, el));
+  });
+
+  // ── 初始化 ────────────────────────────────────────────────────────────────
+  async function init() {
+    const user = await initLiff(LIFF_ID, "nurse");
+    if (!user) return;
+    document.getElementById("user-name").textContent = user.name;
+    document.getElementById("work-date").valueAsDate = new Date();
+  }
+
+  init();
+</script>
+</body>
+</html>

@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>加班系統（主管）</title>
+  <script src="https://static.line-scdn.net/liff/edge/versions/2.22.3/sdk.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; padding-bottom: 80px; }
+    .header { background: #1565C0; color: #fff; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
+    .header h1 { font-size: 18px; font-weight: 600; }
+    .header .user-name { font-size: 13px; opacity: 0.88; }
+    .tabs { display: flex; background: #fff; border-bottom: 1.5px solid #e8e8e8; position: sticky; top: 53px; z-index: 9; }
+    .tab { flex: 1; padding: 14px 0; text-align: center; font-size: 14px; color: #888; cursor: pointer; border-bottom: 2.5px solid transparent; transition: all 0.2s; }
+    .tab.active { color: #1565C0; border-bottom-color: #1565C0; font-weight: 600; }
+    .panel { display: none; padding: 16px; }
+    .panel.active { display: block; }
+    .card { background: #fff; border-radius: 14px; padding: 16px 20px; box-shadow: 0 1px 6px rgba(0,0,0,0.06); margin-bottom: 14px; }
+    .card-title { font-size: 15px; font-weight: 600; color: #1a1a1a; margin-bottom: 14px; }
+
+    /* 待審核 */
+    .pending-item { padding: 14px 0; border-bottom: 1px solid #f0f0f0; }
+    .pending-item:last-child { border-bottom: none; }
+    .pending-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .pending-name { font-size: 15px; font-weight: 600; color: #1a1a1a; }
+    .pending-mins { font-size: 15px; font-weight: 600; color: #1565C0; }
+    .pending-detail { font-size: 13px; color: #666; margin-bottom: 10px; }
+    .review-btns { display: flex; gap: 10px; }
+    .btn-approve {
+      flex: 1; padding: 9px; background: #06C755; color: #fff; border: none;
+      border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    .btn-reject {
+      flex: 1; padding: 9px; background: #fff; color: #e53935; border: 1.5px solid #e53935;
+      border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    .empty { text-align: center; color: #aaa; font-size: 14px; padding: 40px 0; }
+    .badge-pending { background: #FFF3CD; color: #856404; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+
+    /* 全員查詢 */
+    .filter-row { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+    .filter-chip { padding: 7px 14px; border: 1.5px solid #e0e0e0; border-radius: 20px; font-size: 13px; cursor: pointer; background: #fff; color: #555; transition: all 0.15s; }
+    .filter-chip.active { background: #1565C0; color: #fff; border-color: #1565C0; }
+    .month-input { display: none; gap: 8px; margin-bottom: 14px; align-items: center; }
+    .month-input.show { display: flex; }
+    .month-input input { flex: 1; padding: 9px 12px; border: 1.5px solid #e0e0e0; border-radius: 8px; font-size: 14px; }
+    .month-input .btn-go { padding: 9px 16px; background: #1565C0; color: #fff; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; }
+
+    .summary-card { background: #E3F2FD; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+    .summary-card .total-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+    .summary-card .total-label { font-size: 13px; color: #1565C0; }
+    .summary-card .total-val { font-size: 16px; font-weight: 700; color: #0D47A1; }
+    .person-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(21,101,192,0.1); font-size: 14px; }
+    .person-row:last-child { border-bottom: none; }
+
+    .record-item { padding: 12px 0; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: flex-start; }
+    .record-item:last-child { border-bottom: none; }
+    .record-left .name { font-size: 14px; font-weight: 600; color: #1a1a1a; }
+    .record-left .detail { font-size: 13px; color: #666; margin-top: 2px; }
+    .record-right { text-align: right; }
+    .record-right .mins { font-size: 14px; font-weight: 600; color: #333; }
+    .record-right .status { margin-top: 4px; }
+
+    /* 月份統計 */
+    .month-bar { display: flex; align-items: center; padding: 10px 0; border-bottom: 1px solid #f5f5f5; gap: 10px; }
+    .month-bar:last-child { border-bottom: none; }
+    .month-label { font-size: 14px; font-weight: 500; width: 52px; color: #333; flex-shrink: 0; }
+    .bar-track { flex: 1; height: 8px; background: #E3F2FD; border-radius: 4px; overflow: hidden; }
+    .bar-fill { height: 100%; background: #1565C0; border-radius: 4px; transition: width 0.6s ease; }
+    .month-val { font-size: 13px; color: #555; width: 80px; text-align: right; flex-shrink: 0; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>加班系統</h1>
+  <span class="user-name" id="user-name">載入中…</span>
+</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('pending')">✅ 待審核</div>
+  <div class="tab" onclick="switchTab('all')">📊 全員查詢</div>
+  <div class="tab" onclick="switchTab('monthly')">📅 月份統計</div>
+</div>
+
+<!-- 待審核 -->
+<div class="panel active" id="panel-pending">
+  <div class="card">
+    <div class="card-title" id="pending-title">待審核申請</div>
+    <div id="pending-list"><div class="empty">載入中…</div></div>
+  </div>
+</div>
+
+<!-- 全員查詢 -->
+<div class="panel" id="panel-all">
+  <div class="filter-row">
+    <div class="filter-chip active" onclick="setAllFilter('week', this)">當週</div>
+    <div class="filter-chip" onclick="setAllFilter('month', this)">當月</div>
+    <div class="filter-chip" onclick="setAllFilter('pick', this)">指定月份</div>
+  </div>
+  <div class="month-input" id="month-picker">
+    <input type="month" id="pick-month">
+    <button class="btn-go" onclick="loadAll()">查詢</button>
+  </div>
+  <div id="all-summary"></div>
+  <div class="card" style="padding:8px 16px">
+    <div id="all-list"><div class="empty">請選擇時間範圍</div></div>
+  </div>
+</div>
+
+<!-- 月份統計 -->
+<div class="panel" id="panel-monthly">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button onclick="changeYear(-1)" style="background:none;border:none;font-size:20px;cursor:pointer;color:#1565C0">‹</button>
+    <span id="year-label" style="font-size:16px;font-weight:600;color:#1a1a1a;flex:1;text-align:center"></span>
+    <button onclick="changeYear(1)" style="background:none;border:none;font-size:20px;cursor:pointer;color:#1565C0">›</button>
+  </div>
+  <div class="card" style="padding:16px 20px">
+    <div id="monthly-chart"><div class="empty">載入中…</div></div>
+  </div>
+</div>
+
+<script src="share.js"></script>
+<script>
+  
+  let allFilter = "week";
+  let currentYear = new Date().getFullYear();
+
+  // ── 待審核 ────────────────────────────────────────────────────────────────
+
+  async function loadPending() {
+    loading(true);
+    try {
+      const res = await apiFetch("/api/records/pending");
+      const data = await res.json();
+      const count = data.count;
+      document.getElementById("pending-title").innerHTML =
+        `待審核申請 ${count > 0 ? `<span class="badge-pending">${count}</span>` : ""}`;
+      if (count === 0) {
+        document.getElementById("pending-list").innerHTML = `<div class="empty">目前沒有待審核申請 🎉</div>`;
+        return;
+      }
+      document.getElementById("pending-list").innerHTML = data.records.map(r => `
+        <div class="pending-item" id="item-${r.id}">
+          <div class="pending-header">
+            <span class="pending-name">${r.applicant_name}</span>
+            <span class="pending-mins">${formatMinutes(r.overtime_minutes)}</span>
+          </div>
+          <div class="pending-detail">${r.work_date}　${shiftLabel(r)}</div>
+          <div class="review-btns">
+            <button class="btn-approve" onclick="review(${r.id}, 'approve')">核准</button>
+            <button class="btn-reject" onclick="review(${r.id}, 'reject')">拒絕</button>
+          </div>
+        </div>
+      `).join("");
+    } catch (e) {
+      document.getElementById("pending-list").innerHTML = `<div class="empty">載入失敗</div>`;
+    } finally {
+      loading(false);
+    }
+  }
+
+  async function review(id, action) {
+    const label = action === "approve" ? "核准" : "拒絕";
+    if (!confirm(`確定要${label}這筆申請嗎？`)) return;
+    loading(true);
+    try {
+      const res = await apiFetch(`/api/records/${id}/review`, {
+        method: "POST",
+        body: JSON.stringify({ action }),
+      });
+      if (!res.ok) throw new Error("操作失敗");
+      showToast(`已${label}`);
+      const item = document.getElementById(`item-${id}`);
+      if (item) item.remove();
+      // 更新標題數量
+      const remaining = document.querySelectorAll(".pending-item").length;
+      document.getElementById("pending-title").innerHTML =
+        `待審核申請 ${remaining > 0 ? `<span class="badge-pending">${remaining}</span>` : ""}`;
+      if (remaining === 0) {
+        document.getElementById("pending-list").innerHTML = `<div class="empty">目前沒有待審核申請 🎉</div>`;
+      }
+    } catch (e) {
+      showToast(e.message, false);
+    } finally {
+      loading(false);
+    }
+  }
+
+  // ── 全員查詢 ──────────────────────────────────────────────────────────────
+
+  function setAllFilter(type, el) {
+    allFilter = type;
+    document.querySelectorAll(".filter-chip").forEach(c => c.classList.remove("active"));
+    el.classList.add("active");
+    document.getElementById("month-picker").classList.toggle("show", type === "pick");
+    if (type !== "pick") loadAll();
+  }
+
+  async function loadAll() {
+    loading(true);
+    let url = "/api/records/all";
+    if (allFilter === "week") url += "?week=current";
+    else if (allFilter === "month") url += "?month=current";
+    else {
+      const m = document.getElementById("pick-month").value;
+      if (!m) { loading(false); return; }
+      url += `?month=${m}`;
+    }
+    try {
+      const res = await apiFetch(url);
+      const data = await res.json();
+      renderAllSummary(data);
+      renderAllRecords(data.records);
+    } catch (e) {
+      document.getElementById("all-list").innerHTML = `<div class="empty">查詢失敗</div>`;
+    } finally {
+      loading(false);
+    }
+  }
+
+  function renderAllSummary(data) {
+    if (data.count === 0) { document.getElementById("all-summary").innerHTML = ""; return; }
+    const personRows = Object.entries(data.person_totals)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, min]) => `
+        <div class="person-row">
+          <span>${name}</span>
+          <span style="font-weight:600;color:#0D47A1">${formatMinutes(min)}</span>
+        </div>
+      `).join("");
+    document.getElementById("all-summary").innerHTML = `
+      <div class="summary-card">
+        <div class="total-row">
+          <span class="total-label">共 ${data.count} 筆</span>
+          <span class="total-val">${formatMinutes(data.total_minutes)}</span>
+        </div>
+        ${personRows}
+      </div>
+    `;
+  }
+
+  function renderAllRecords(records) {
+    if (!records || records.length === 0) {
+      document.getElementById("all-list").innerHTML = `<div class="empty">此區間沒有記錄</div>`;
+      return;
+    }
+    document.getElementById("all-list").innerHTML = records.map(r => `
+      <div class="record-item">
+        <div class="record-left">
+          <div class="name">${r.applicant_name}</div>
+          <div class="detail">${r.work_date}　${shiftLabel(r)}</div>
+        </div>
+        <div class="record-right">
+          <div class="mins">${formatMinutes(r.overtime_minutes)}</div>
+          <div class="status">${statusBadge(r.status)}</div>
+        </div>
+      </div>
+    `).join("");
+  }
+
+  // ── 月份統計 ──────────────────────────────────────────────────────────────
+
+  function changeYear(delta) {
+    currentYear += delta;
+    loadMonthly();
+  }
+
+  async function loadMonthly() {
+    document.getElementById("year-label").textContent = `${currentYear} 年`;
+    loading(true);
+    try {
+      const res = await apiFetch(`/api/records/monthly-summary?year=${currentYear}`);
+      const data = await res.json();
+      const maxMin = Math.max(...data.months.map(m => m.total_minutes), 1);
+      document.getElementById("monthly-chart").innerHTML = data.months.map(m => {
+        const pct = Math.round((m.total_minutes / maxMin) * 100);
+        const label = m.month.slice(5) + "月";
+        return `
+          <div class="month-bar">
+            <span class="month-label">${label}</span>
+            <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+            <span class="month-val">${m.count > 0 ? formatMinutes(m.total_minutes) : "—"}</span>
+          </div>
+        `;
+      }).join("");
+    } catch (e) {
+      document.getElementById("monthly-chart").innerHTML = `<div class="empty">載入失敗</div>`;
+    } finally {
+      loading(false);
+    }
+  }
+
+  function switchTab(tab) {
+    ["pending", "all", "monthly"].forEach(t => {
+      document.getElementById(`panel-${t}`).classList.toggle("active", t === tab);
+    });
+    document.querySelectorAll(".tab").forEach((el, i) => {
+      el.classList.toggle("active", ["pending","all","monthly"][i] === tab);
+    });
+    if (tab === "pending") loadPending();
+    else if (tab === "monthly") loadMonthly();
+  }
+
+  async function init() {
+    const user = await initLiff(LIFF_ID, "manager");
+    if (!user) return;
+    document.getElementById("user-name").textContent = `${user.name}（${user.role}）`;
+    document.getElementById("year-label").textContent = `${currentYear} 年`;
+    loadPending();
+  }
+
+  init();
+</script>
+</body>
+</html>
