@@ -677,7 +677,7 @@ def api_history_me(
         if end:
             filters.append(f"work_date=lte.{end}")
     query = "&".join(filters)
-    url = f"{SUPABASE_URL}/rest/v1/overtime_history?{query}&order=work_date.asc&select=*"
+    url = f"{SUPABASE_URL}/rest/v1/overtime_history?{query}&order=work_date.asc&limit=10000&select=*"
     resp = requests.get(url, headers=SUPABASE_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS)
     if resp.status_code != 200:
         raise HTTPException(status_code=500, detail="Query failed")
@@ -715,7 +715,7 @@ def api_history_all(
             filters.append(f"work_date=lte.{end}")
     q = "&".join(filters)
     base = f"{SUPABASE_URL}/rest/v1/overtime_history"
-    url = f"{base}?{q}&order=work_date.asc&select=*" if q else f"{base}?order=work_date.asc&select=*"
+    url = f"{base}?{q}&order=work_date.asc&limit=10000&select=*" if q else f"{base}?order=work_date.asc&limit=10000&select=*"
     resp = requests.get(url, headers=SUPABASE_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS)
     if resp.status_code != 200:
         raise HTTPException(status_code=500, detail="Query failed")
@@ -738,7 +738,7 @@ def api_history_monthly_summary(request: Request, year: Optional[int] = None):
         ym = f"{year}-{m:02d}"
         s, e = month_range(ym)
         url = (f"{SUPABASE_URL}/rest/v1/overtime_history"
-               f"?work_date=gte.{s}&work_date=lte.{e}&select=overtime_minutes")
+               f"?work_date=gte.{s}&work_date=lte.{e}&limit=10000&select=overtime_minutes")
         resp = requests.get(url, headers=SUPABASE_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS)
         recs = resp.json() if resp.status_code == 200 else []
         total = sum(r["overtime_minutes"] for r in recs)
