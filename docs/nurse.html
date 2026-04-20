@@ -243,6 +243,7 @@
 <div class="tabs">
   <div class="tab active" id="tab-submit">📋 申報加班</div>
   <div class="tab" id="tab-records">🔍 我的記錄</div>
+  <div class="tab" id="tab-history">📊 歷史加班</div>
 </div>
 
 <!-- 申報加班 -->
@@ -321,6 +322,27 @@
   </div>
   <div class="card" style="padding:8px 16px">
     <div id="records-list"><div class="empty">載入中…</div></div>
+  </div>
+</div>
+
+<!-- 歷史加班 -->
+<div class="panel" id="panel-history">
+  <div class="filter-row">
+    <div class="filter-chip active" data-hfilter="month">本月</div>
+    <div class="filter-chip" data-hfilter="custom">自訂區間</div>
+  </div>
+  <div class="custom-range" id="history-custom-range">
+    <input type="date" id="history-range-start">
+    <span style="color:#aaa;font-size:13px">～</span>
+    <input type="date" id="history-range-end">
+    <button class="btn-go" id="history-range-go">查詢</button>
+  </div>
+  <div class="summary-bar" id="history-summary-bar" style="display:none">
+    <span>共 <strong id="history-rec-count">0</strong> 筆</span>
+    <span>合計 <strong id="history-rec-total">—</strong></span>
+  </div>
+  <div class="card" style="padding:8px 16px">
+    <div id="history-list"><div class="empty">載入中…</div></div>
   </div>
 </div>
 
@@ -572,13 +594,79 @@
     }
   }
 
+  // ── 歷史加班 ──────────────────────────────────────────────────────────────
+  let currentHFilter = "month";
+
+  function setHFilter(type, el) {
+    currentHFilter = type;
+    document.querySelectorAll("[data-hfilter]").forEach(c => c.classList.remove("active"));
+    el.classList.add("active");
+    document.getElementById("history-custom-range").classList.toggle("show", type === "custom");
+    if (type !== "custom") loadHistory();
+  }
+
+  async function loadHistory() {
+    loading(true);
+    const now = new Date();
+    let url = "/api/history/me";
+
+    if (currentHFilter === "month") {
+      url += `?month=${now.toISOString().slice(0, 7)}`;
+    } else if (currentHFilter === "custom") {
+      const s = document.getElementById("history-range-start").value;
+      const e = document.getElementById("history-range-end").value;
+      if (!s || !e) { loading(false); return; }
+      url += `?start=${s}&end=${e}`;
+    }
+
+    try {
+      const res = await apiFetch(url);
+      const data = await res.json();
+      renderHistory(data.records, data.total_minutes, data.count);
+    } catch (e) {
+      document.getElementById("history-list").innerHTML = `<div class="empty">查詢失敗</div>`;
+    } finally {
+      loading(false);
+    }
+  }
+
+  function renderHistory(records, totalMin, count) {
+    const summaryBar = document.getElementById("history-summary-bar");
+    document.getElementById("history-rec-count").textContent = count;
+    document.getElementById("history-rec-total").textContent = totalMin >= 0 ? formatMinutes(totalMin) : "—";
+    summaryBar.style.display = count > 0 ? "flex" : "none";
+
+    if (!records || records.length === 0) {
+      document.getElementById("history-list").innerHTML = `<div class="empty">此區間沒有記錄</div>`;
+      return;
+    }
+
+    document.getElementById("history-list").innerHTML = records.map(r => `
+      <div class="record-item">
+        <div class="record-left">
+          <div class="date">${r.work_date}</div>
+          <div class="shift">${r.shift_type}</div>
+        </div>
+        <div class="record-right">
+          <div class="mins">${formatMinutes(r.overtime_minutes)}</div>
+        </div>
+      </div>
+    `).join("");
+  }
+
   function switchTab(tab) {
     document.querySelectorAll(".tab").forEach((t, i) => {
-      t.classList.toggle("active", (i === 0 && tab === "submit") || (i === 1 && tab === "records"));
+      t.classList.toggle("active",
+        (i === 0 && tab === "submit") ||
+        (i === 1 && tab === "records") ||
+        (i === 2 && tab === "history")
+      );
     });
     document.getElementById("panel-submit").classList.toggle("active", tab === "submit");
     document.getElementById("panel-records").classList.toggle("active", tab === "records");
+    document.getElementById("panel-history").classList.toggle("active", tab === "history");
     if (tab === "records") loadRecords();
+    if (tab === "history") loadHistory();
   }
 
   // ── 事件綁定 ──────────────────────────────────────────────────────────────
@@ -588,6 +676,11 @@
   document.getElementById("range-go").addEventListener("click", loadRecords);
   document.getElementById("tab-submit").addEventListener("click", () => switchTab("submit"));
   document.getElementById("tab-records").addEventListener("click", () => switchTab("records"));
+  document.getElementById("tab-history").addEventListener("click", () => switchTab("history"));
+  document.getElementById("history-range-go").addEventListener("click", loadHistory);
+  document.querySelectorAll("[data-hfilter]").forEach(el => {
+    el.addEventListener("click", () => setHFilter(el.dataset.hfilter, el));
+  });
   document.querySelectorAll(".filter-chip[data-filter]").forEach(el => {
     el.addEventListener("click", () => setFilter(el.dataset.filter, el));
   });
