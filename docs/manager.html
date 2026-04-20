@@ -119,9 +119,9 @@
     .filter-row { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
     .filter-chip { padding: 7px 14px; border: 1.5px solid #e0e0e0; border-radius: 20px; font-size: 13px; cursor: pointer; background: #fff; color: #555; transition: all 0.15s; }
     .filter-chip.active { background: #1565C0; color: #fff; border-color: #1565C0; }
-    .month-input { display: none; gap: 8px; margin-bottom: 14px; align-items: center; }
+    .month-input { display: none; gap: 8px; margin-bottom: 14px; align-items: center; flex-wrap: wrap; }
     .month-input.show { display: flex; }
-    .month-input input { flex: 1; padding: 9px 12px; border: 1.5px solid #e0e0e0; border-radius: 8px; font-size: 14px; }
+    .month-input input[type="month"] { flex: 1; min-width: 120px; padding: 9px 12px; border: 1.5px solid #e0e0e0; border-radius: 8px; font-size: 14px; }
     .month-input .btn-go { padding: 9px 16px; background: #1565C0; color: #fff; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; }
     .summary-card { background: #E3F2FD; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
     .summary-card .total-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
@@ -260,10 +260,12 @@
   <div class="filter-row">
     <div class="filter-chip active" onclick="setAllFilter('week', this)">當週</div>
     <div class="filter-chip" onclick="setAllFilter('month', this)">當月</div>
-    <div class="filter-chip" onclick="setAllFilter('pick', this)">指定月份</div>
+    <div class="filter-chip" onclick="setAllFilter('pick', this)">指定區間</div>
   </div>
   <div class="month-input" id="month-picker">
-    <input type="month" id="pick-month">
+    <input type="month" id="pick-start">
+    <span style="color:#aaa;font-size:13px;flex-shrink:0">～</span>
+    <input type="month" id="pick-end">
     <button class="btn-go" type="button" onclick="loadAll()">查詢</button>
   </div>
   <div class="extra-filters">
@@ -556,6 +558,11 @@
     });
   }
 
+  function monthLastDay(ym) {
+    const [y, m] = ym.split("-").map(Number);
+    return new Date(y, m, 0).toISOString().slice(0, 10);
+  }
+
   function setAllFilter(type, el) {
     allFilter = type;
     document.querySelectorAll(".filter-chip").forEach((chip) => chip.classList.remove("active"));
@@ -570,13 +577,10 @@
     if (allFilter === "week") url += "?week=current";
     else if (allFilter === "month") url += "?month=" + new Date().toISOString().slice(0, 7);
     else {
-      const month = document.getElementById("pick-month").value;
-      if (!month) {
-        loading(false);
-        showToast("請先選擇月份", false);
-        return;
-      }
-      url += `?month=${month}`;
+      const s = document.getElementById("pick-start").value;
+      const e = document.getElementById("pick-end").value;
+      if (!s || !e) { loading(false); showToast("請選擇起訖月份", false); return; }
+      url += `?start=${s}-01&end=${monthLastDay(e)}`;
     }
 
     try {
