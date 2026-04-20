@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>加班系統</title>
+  <script src="https://static.line-scdn.net/liff/edge/versions/2.22.3/sdk.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; padding-bottom: 80px; }
+
+    .header {
+      background: #06C755; color: #fff; padding: 16px 20px;
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 10;
+    }
+    .header h1 { font-size: 18px; font-weight: 600; }
+    .header .user-name { font-size: 13px; opacity: 0.88; }
+
+    .tabs {
+      display: flex; background: #fff; border-bottom: 1.5px solid #e8e8e8;
+      position: sticky; top: 53px; z-index: 9;
+    }
+    .tab {
+      flex: 1; padding: 14px 0; text-align: center; font-size: 14px;
+      color: #888; cursor: pointer; border-bottom: 2.5px solid transparent;
+      transition: all 0.2s;
+    }
+    .tab.active { color: #06C755; border-bottom-color: #06C755; font-weight: 600; }
+
+    .panel { display: none; padding: 20px 16px; }
+    .panel.active { display: block; }
+
+    .card {
+      background: #fff; border-radius: 14px; padding: 20px;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.06); margin-bottom: 16px;
+    }
+    .card-title { font-size: 15px; font-weight: 600; color: #1a1a1a; margin-bottom: 16px; }
+
+    .form-group { margin-bottom: 16px; }
+    .form-label { font-size: 13px; color: #555; margin-bottom: 6px; display: block; font-weight: 500; }
+    .form-control {
+      width: 100%; padding: 12px 14px; border: 1.5px solid #e0e0e0;
+      border-radius: 10px; font-size: 15px; outline: none;
+      transition: border-color 0.2s; background: #fff;
+    }
+    input.form-control { display: block; min-width: 0; max-width: 100%; }
+    input[type="date"].form-control,
+    input[type="month"].form-control {
+      -webkit-appearance: none; appearance: none;
+      padding-right: 10px; min-height: 46px; line-height: 1.2;
+    }
+    @media (max-width: 480px) {
+      input[type="date"].form-control,
+      input[type="month"].form-control { font-size: 16px; padding-left: 12px; }
+    }
+    .form-control:focus { border-color: #06C755; }
+    select.form-control {
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 14px center; padding-right: 36px;
+    }
+
+    /* ── Drum Picker ── */
+    .drum-wrapper {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      background: #f7f7f7;
+      border: 1.5px solid #e0e0e0;
+      border-radius: 12px;
+      overflow: hidden;
+      height: 180px;
+      position: relative;
+      user-select: none;
+    }
+
+    /* 選中框線 */
+    .drum-wrapper::before,
+    .drum-wrapper::after {
+      content: '';
+      position: absolute;
+      left: 12px; right: 12px;
+      height: 1px;
+      background: #06C755;
+      z-index: 3;
+      pointer-events: none;
+    }
+    .drum-wrapper::before { top: calc(50% - 22px); }
+    .drum-wrapper::after  { top: calc(50% + 22px); }
+
+    /* 上下漸層遮罩 */
+    .drum-mask {
+      position: absolute;
+      left: 0; right: 0;
+      height: 60px;
+      z-index: 2;
+      pointer-events: none;
+    }
+    .drum-mask.top    { top: 0;    background: linear-gradient(to bottom, #f7f7f7, transparent); }
+    .drum-mask.bottom { bottom: 0; background: linear-gradient(to top,   #f7f7f7, transparent); }
+
+    .drum-col {
+      flex: 1;
+      height: 100%;
+      overflow-y: scroll;
+      scroll-snap-type: y mandatory;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      position: relative;
+    }
+    .drum-col::-webkit-scrollbar { display: none; }
+
+    .drum-item {
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      font-weight: 500;
+      color: #bbb;
+      scroll-snap-align: center;
+      transition: color 0.15s, font-size 0.15s;
+      cursor: pointer;
+    }
+    .drum-item.selected {
+      color: #1a1a1a;
+      font-size: 24px;
+      font-weight: 600;
+    }
+
+    .drum-separator {
+      font-size: 22px;
+      font-weight: 600;
+      color: #333;
+      padding: 0 6px;
+      line-height: 180px;
+      z-index: 4;
+      pointer-events: none;
+    }
+
+    .drum-label {
+      font-size: 11px;
+      color: #aaa;
+      text-align: center;
+      margin-top: 6px;
+      display: flex;
+      justify-content: space-around;
+      padding: 0 20px;
+    }
+
+    .duration-display {
+      text-align: center;
+      font-size: 14px;
+      color: #06C755;
+      font-weight: 600;
+      margin-top: 8px;
+      min-height: 20px;
+    }
+
+    /* 按鈕 */
+    .btn-submit {
+      width: 100%; padding: 14px; background: #06C755; color: #fff; border: none;
+      border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer;
+      transition: opacity 0.2s; margin-top: 4px;
+    }
+    .btn-submit:hover { opacity: 0.88; }
+    .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* 記錄 */
+    .filter-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .filter-chip {
+      padding: 7px 14px; border: 1.5px solid #e0e0e0; border-radius: 20px;
+      font-size: 13px; cursor: pointer; background: #fff; color: #555; transition: all 0.15s;
+    }
+    .filter-chip.active { background: #06C755; color: #fff; border-color: #06C755; }
+    .custom-range { display: none; gap: 8px; align-items: center; margin-bottom: 16px; }
+    .custom-range.show { display: flex; }
+    .custom-range input { flex: 1; padding: 9px 12px; border: 1.5px solid #e0e0e0; border-radius: 8px; font-size: 14px; }
+    .custom-range .btn-go {
+      padding: 9px 16px; background: #06C755; color: #fff; border: none;
+      border-radius: 8px; font-size: 14px; cursor: pointer;
+    }
+    .summary-bar {
+      background: #E8F5E9; border-radius: 10px; padding: 12px 16px;
+      margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;
+    }
+    .summary-bar span { font-size: 13px; color: #2E7D32; }
+    .summary-bar strong { font-size: 16px; color: #1B5E20; }
+    .record-item {
+      padding: 14px 0; border-bottom: 1px solid #f0f0f0;
+      display: flex; justify-content: space-between; align-items: flex-start;
+    }
+    .record-item:last-child { border-bottom: none; }
+    .record-left .date { font-size: 14px; font-weight: 600; color: #1a1a1a; }
+    .record-left .shift { font-size: 13px; color: #666; margin-top: 2px; }
+    .record-right { text-align: right; }
+    .record-right .mins { font-size: 15px; font-weight: 600; color: #333; }
+    .record-right .status { margin-top: 4px; }
+    .btn-cancel {
+      margin-top: 6px; padding: 4px 12px; border: 1px solid #e53935;
+      border-radius: 6px; color: #e53935; font-size: 12px;
+      background: none; cursor: pointer;
+    }
+    .empty { text-align: center; color: #aaa; font-size: 14px; padding: 40px 0; }
+
+    /* ── 早走勾選 ── */
+    .leave-early-label {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 14px; border: 1.5px solid #e0e0e0; border-radius: 10px;
+      cursor: pointer; font-size: 15px; color: #333; transition: all 0.2s;
+      background: #fff;
+    }
+    .leave-early-label:has(input:checked) {
+      border-color: #e53935; background: #fff5f5; color: #c62828;
+    }
+    .leave-early-label input { display: none; }
+    .leave-early-box {
+      width: 20px; height: 20px; border: 2px solid #ccc; border-radius: 5px;
+      flex-shrink: 0; position: relative; transition: all 0.15s;
+    }
+    .leave-early-label:has(input:checked) .leave-early-box {
+      background: #e53935; border-color: #e53935;
+    }
+    .leave-early-label:has(input:checked) .leave-early-box::after {
+      content: ''; position: absolute; left: 4px; top: 1px;
+      width: 8px; height: 12px; border: 2px solid #fff;
+      border-top: none; border-left: none; transform: rotate(45deg);
+    }
+    .drum-wrapper.leave-early-mode::before,
+    .drum-wrapper.leave-early-mode::after { background: #e53935; }
+    .duration-display.leave-early-mode { color: #e53935 !important; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>加班系統</h1>
+  <span class="user-name" id="user-name">載入中…</span>
+</div>
+
+<div class="tabs">
+  <div class="tab active" id="tab-submit">📋 申報加班</div>
+  <div class="tab" id="tab-records">🔍 我的記錄</div>
+</div>
+
+<!-- 申報加班 -->
+<div class="panel active" id="panel-submit">
+  <div class="card">
+    <div class="card-title">新增加班申請</div>
+
+    <div class="form-group">
+      <label class="form-label">加班日期</label>
+      <input type="date" class="form-control" id="work-date">
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">班別</label>
+      <select class="form-control" id="shift-type">
+        <option value="">請選擇班別</option>
+        <option value="7-3">7-3</option>
+        <option value="9-5">9-5</option>
+        <option value="10-6">10-6</option>
+        <option value="12-8">12-8</option>
+        <option value="3-11">3-11</option>
+        <option value="11-7">11-7</option>
+        <option value="其他">其他</option>
+      </select>
+    </div>
+
+    <div class="form-group" id="other-shift-group" style="display:none">
+      <label class="form-label">班別說明</label>
+      <input type="text" class="form-control" id="other-shift-text" placeholder="例如：急診支援">
+    </div>
+
+    <div class="form-group">
+      <label class="leave-early-label" id="leave-early-label">
+        <input type="checkbox" id="leave-early-check">
+        <span class="leave-early-box"></span>
+        <span>這是早走申請</span>
+      </label>
+    </div>
+    <div class="form-group">
+      <label class="form-label" id="duration-label">加班時數</label>
+      <div class="drum-wrapper" id="drum-wrapper">
+        <div class="drum-mask top"></div>
+        <div class="drum-mask bottom"></div>
+        <div class="drum-col" id="drum-hour"></div>
+        <div class="drum-separator">:</div>
+        <div class="drum-col" id="drum-min"></div>
+      </div>
+      <div class="drum-label">
+        <span style="flex:1;text-align:center">小時</span>
+        <span style="width:32px"></span>
+        <span style="flex:1;text-align:center">分鐘</span>
+      </div>
+      <div class="duration-display" id="duration-display">請撥動選擇時間</div>
+    </div>
+
+    <button class="btn-submit" id="submit-btn">送出申請</button>
+  </div>
+</div>
+
+<!-- 我的記錄 -->
+<div class="panel" id="panel-records">
+  <div class="filter-row">
+    <div class="filter-chip active" data-filter="recent">最近 20 筆</div>
+    <div class="filter-chip" data-filter="month">本月</div>
+    <div class="filter-chip" data-filter="custom">自訂區間</div>
+  </div>
+  <div class="custom-range" id="custom-range">
+    <input type="date" id="range-start">
+    <span style="color:#aaa;font-size:13px">～</span>
+    <input type="date" id="range-end">
+    <button class="btn-go" id="range-go">查詢</button>
+  </div>
+  <div class="summary-bar" id="summary-bar" style="display:none">
+    <span>共 <strong id="rec-count">0</strong> 筆</span>
+    <span>合計 <strong id="rec-total">—</strong></span>
+  </div>
+  <div class="card" style="padding:8px 16px">
+    <div id="records-list"><div class="empty">載入中…</div></div>
+  </div>
+</div>
+
+<script src="share.js"></script>
+<script>
+  let currentFilter = "recent";
+
+  // ── Drum Picker ────────────────────────────────────────────────────────────
+  const ITEM_H = 44;     // px per item
+  const PADDING = 2;     // blank items top & bottom so first/last can center
+
+  function buildDrum(colEl, values, defaultIndex) {
+    // Padding items so edge values can scroll to center
+    const pad = () => {
+      const d = document.createElement("div");
+      d.className = "drum-item";
+      d.style.visibility = "hidden";
+      return d;
+    };
+    colEl.appendChild(pad());
+    colEl.appendChild(pad());
+
+    values.forEach((v, i) => {
+      const d = document.createElement("div");
+      d.className = "drum-item";
+      d.textContent = String(v).padStart(2, "0");
+      d.dataset.value = v;
+      colEl.appendChild(d);
+    });
+
+    colEl.appendChild(pad());
+    colEl.appendChild(pad());
+
+    // Scroll to default
+    colEl.scrollTop = defaultIndex * ITEM_H;
+    highlightCenter(colEl);
+  }
+
+  function highlightCenter(colEl) {
+    const center = colEl.scrollTop + colEl.clientHeight / 2;
+    colEl.querySelectorAll(".drum-item").forEach(item => {
+      const itemCenter = item.offsetTop + ITEM_H / 2;
+      item.classList.toggle("selected", Math.abs(itemCenter - center) < ITEM_H / 2);
+    });
+  }
+
+  function getSelectedValue(colEl) {
+    const selected = colEl.querySelector(".drum-item.selected");
+    return selected ? parseInt(selected.dataset.value) : 0;
+  }
+
+  function updateDisplay() {
+    const h = getSelectedValue(document.getElementById("drum-hour"));
+    const m = getSelectedValue(document.getElementById("drum-min"));
+    const total = h * 60 + m;
+    const display = document.getElementById("duration-display");
+    if (total === 0) {
+      display.textContent = "請撥動選擇時間";
+      display.style.color = "#aaa";
+    } else {
+      let label = "";
+      if (h > 0 && m > 0) label = `${h} 小時 ${m} 分鐘`;
+      else if (h > 0) label = `${h} 小時`;
+      else label = `${m} 分鐘`;
+      display.textContent = `已選：${label}`;
+      display.style.color = "#06C755";
+    }
+  }
+
+  function getSelectedMinutes() {
+    const h = getSelectedValue(document.getElementById("drum-hour"));
+    const m = getSelectedValue(document.getElementById("drum-min"));
+    return h * 60 + m;
+  }
+
+  function attachDrumEvents(colEl) {
+    let scrollTimer;
+    colEl.addEventListener("scroll", () => {
+      highlightCenter(colEl);
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => {
+        // Snap to nearest item
+        const nearest = Math.round(colEl.scrollTop / ITEM_H) * ITEM_H;
+        colEl.scrollTo({ top: nearest, behavior: "smooth" });
+        setTimeout(() => { highlightCenter(colEl); updateDisplay(); }, 150);
+      }, 80);
+    }, { passive: true });
+  }
+
+  // Build hours (0–23) default 0, minutes (0–59) default 0
+  const hourCol = document.getElementById("drum-hour");
+  const minCol  = document.getElementById("drum-min");
+  const hours   = Array.from({ length: 24 }, (_, i) => i);
+  const mins    = Array.from({ length: 60 }, (_, i) => i);
+
+  buildDrum(hourCol, hours, 0);
+  buildDrum(minCol,  mins,  0);
+  attachDrumEvents(hourCol);
+  attachDrumEvents(minCol);
+  updateDisplay();
+
+  // ── 班別 ──────────────────────────────────────────────────────────────────
+  function onLeaveEarlyChange() {
+    const isLeave = document.getElementById("leave-early-check").checked;
+    const wrapper = document.getElementById("drum-wrapper");
+    const display = document.getElementById("duration-display");
+    const label   = document.getElementById("duration-label");
+    wrapper.classList.toggle("leave-early-mode", isLeave);
+    display.classList.toggle("leave-early-mode", isLeave);
+    if (label) label.textContent = isLeave ? "早走時數" : "加班時數";
+    updateDurationDisplay();
+  }
+
+  function onShiftChange() {
+    const val = document.getElementById("shift-type").value;
+    document.getElementById("other-shift-group").style.display = val === "其他" ? "block" : "none";
+  }
+
+  // ── 送出申請 ──────────────────────────────────────────────────────────────
+  async function submitOvertime() {
+    const workDate  = document.getElementById("work-date").value;
+    const shiftType = document.getElementById("shift-type").value;
+    const otherText = document.getElementById("other-shift-text").value.trim();
+    const isLeaveEarly = document.getElementById("leave-early-check").checked;
+    const totalMins = getSelectedMinutes();
+
+    if (!workDate)  { showToast("請選擇加班日期", false); return; }
+    if (!shiftType) { showToast("請選擇班別", false); return; }
+    if (shiftType === "其他" && !otherText) { showToast("請輸入班別說明", false); return; }
+    if (totalMins <= 0) { showToast("請選擇時數", false); return; }
+    if (!getLineUserId()) { showToast("尚未登入，請重新開啟", false); return; }
+
+    const btn = document.getElementById("submit-btn");
+    btn.disabled = true; btn.textContent = "送出中…";
+    loading(true);
+
+    try {
+      const res = await apiFetch("/api/overtime", {
+        method: "POST",
+        body: JSON.stringify({
+          work_date: workDate,
+          shift_type: shiftType,
+          other_shift_text: otherText || null,
+          overtime_minutes: totalMins,
+          record_type: isLeaveEarly ? "leave_early" : "overtime",
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "送出失敗");
+      }
+      showToast(isLeaveEarly ? "已送出早走申請，等待審核" : "已送出申請，等待審核");
+      // 重置表單
+      document.getElementById("work-date").value = "";
+      document.getElementById("shift-type").value = "";
+      document.getElementById("other-shift-text").value = "";
+      document.getElementById("other-shift-group").style.display = "none";
+      document.getElementById("leave-early-check").checked = false;
+      onLeaveEarlyChange();
+      // 重置滾輪至 0:00
+      hourCol.scrollTo({ top: 0, behavior: "smooth" });
+      minCol.scrollTo({ top: 0, behavior: "smooth" });
+      setTimeout(() => { highlightCenter(hourCol); highlightCenter(minCol); updateDisplay(); }, 200);
+    } catch (e) {
+      showToast(e.message, false);
+    } finally {
+      btn.disabled = false; btn.textContent = "送出申請";
+      loading(false);
+    }
+  }
+
+  // ── 記錄查詢 ──────────────────────────────────────────────────────────────
+  function setFilter(type, el) {
+    currentFilter = type;
+    document.querySelectorAll(".filter-chip").forEach(c => c.classList.remove("active"));
+    el.classList.add("active");
+    document.getElementById("custom-range").classList.toggle("show", type === "custom");
+    if (type !== "custom") loadRecords();
+  }
+
+  async function loadRecords() {
+    loading(true);
+    let url = "/api/records/me";
+    const now = new Date();
+
+    if (currentFilter === "month") {
+      url += `?month=${now.toISOString().slice(0, 7)}`;
+    } else if (currentFilter === "custom") {
+      const s = document.getElementById("range-start").value;
+      const e = document.getElementById("range-end").value;
+      if (!s || !e) { loading(false); return; }
+      url += `?start=${s}&end=${e}`;
+    }
+
+    try {
+      const res = await apiFetch(url);
+      const data = await res.json();
+      renderRecords(data.records, data.total_minutes, data.count);
+    } catch (e) {
+      document.getElementById("records-list").innerHTML = `<div class="empty">查詢失敗</div>`;
+    } finally {
+      loading(false);
+    }
+  }
+
+  function renderRecords(records, totalMin, count) {
+    const summaryBar = document.getElementById("summary-bar");
+    document.getElementById("rec-count").textContent = count;
+    document.getElementById("rec-total").textContent = formatMinutes(totalMin);
+    summaryBar.style.display = count > 0 ? "flex" : "none";
+
+    if (!records || records.length === 0) {
+      document.getElementById("records-list").innerHTML = `<div class="empty">此區間沒有記錄</div>`;
+      return;
+    }
+
+    document.getElementById("records-list").innerHTML = records.map(r => `
+      <div class="record-item">
+        <div class="record-left">
+          <div class="date">${r.work_date}</div>
+          <div class="shift">${shiftLabel(r)}</div>
+        </div>
+        <div class="record-right">
+          <div class="mins">${formatMinutes(r.overtime_minutes)}</div>
+          <div class="status">${statusBadge(r.status)}</div>
+          ${r.status === "審核中" ? `<button class="btn-cancel" data-id="${r.id}">取消申請</button>` : ""}
+        </div>
+      </div>
+    `).join("");
+
+    document.querySelectorAll(".btn-cancel[data-id]").forEach(btn => {
+      btn.addEventListener("click", () => cancelRecord(parseInt(btn.dataset.id)));
+    });
+  }
+
+  async function cancelRecord(id) {
+    const ok = await showConfirm("確定要取消這筆申請嗎？", { danger: true, confirmText: "取消申請" });
+    if (!ok) return;
+    loading(true);
+    try {
+      const res = await apiFetch(`/api/overtime/${id}/cancel`, { method: "POST" });
+      if (!res.ok) throw new Error("取消失敗");
+      showToast("已取消申請");
+      loadRecords();
+    } catch (e) {
+      showToast(e.message, false);
+    } finally {
+      loading(false);
+    }
+  }
+
+  function switchTab(tab) {
+    document.querySelectorAll(".tab").forEach((t, i) => {
+      t.classList.toggle("active", (i === 0 && tab === "submit") || (i === 1 && tab === "records"));
+    });
+    document.getElementById("panel-submit").classList.toggle("active", tab === "submit");
+    document.getElementById("panel-records").classList.toggle("active", tab === "records");
+    if (tab === "records") loadRecords();
+  }
+
+  // ── 事件綁定 ──────────────────────────────────────────────────────────────
+  document.getElementById("submit-btn").addEventListener("click", submitOvertime);
+  document.getElementById("leave-early-check").addEventListener("change", onLeaveEarlyChange);
+  document.getElementById("shift-type").addEventListener("change", onShiftChange);
+  document.getElementById("range-go").addEventListener("click", loadRecords);
+  document.getElementById("tab-submit").addEventListener("click", () => switchTab("submit"));
+  document.getElementById("tab-records").addEventListener("click", () => switchTab("records"));
+  document.querySelectorAll(".filter-chip[data-filter]").forEach(el => {
+    el.addEventListener("click", () => setFilter(el.dataset.filter, el));
+  });
+
+  // ── 初始化 ────────────────────────────────────────────────────────────────
+  async function init() {
+    const user = await initLiff(LIFF_ID, "nurse");
+    if (!user) return;
+    document.getElementById("user-name").textContent = user.name;
+    document.getElementById("work-date").valueAsDate = new Date();
+  }
+
+  init();
+</script>
+</body>
+</html>

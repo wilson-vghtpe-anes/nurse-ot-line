@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+share_page.html
+.codex-skill-staging/
+.claude/
+ot_raw_data/*.xlsx

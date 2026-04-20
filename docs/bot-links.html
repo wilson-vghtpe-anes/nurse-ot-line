@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>排班機器人入口</title>
+  <style>
+    :root {
+      --bg1: #f4fbf6;
+      --bg2: #eef5ff;
+      --card: rgba(255, 255, 255, 0.92);
+      --line: #06c755;
+      --ink: #19324d;
+      --sub: #5f7184;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", "Noto Sans TC", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, #d9f7df 0, transparent 38%),
+        radial-gradient(circle at bottom right, #d9e8ff 0, transparent 42%),
+        linear-gradient(160deg, var(--bg1), var(--bg2));
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    .card {
+      width: min(100%, 520px);
+      background: var(--card);
+      border: 1px solid rgba(25, 50, 77, 0.08);
+      border-radius: 24px;
+      padding: 28px 22px;
+      box-shadow: 0 18px 50px rgba(25, 50, 77, 0.12);
+      backdrop-filter: blur(10px);
+    }
+    .eyebrow {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--line);
+      margin-bottom: 12px;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 28px;
+      line-height: 1.2;
+    }
+    p {
+      margin: 0 0 18px;
+      color: var(--sub);
+      line-height: 1.6;
+    }
+    .actions {
+      display: grid;
+      gap: 12px;
+      margin-top: 22px;
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      border: 0;
+      border-radius: 16px;
+      padding: 16px 18px;
+      text-decoration: none;
+      font-size: 16px;
+      font-weight: 700;
+      text-align: center;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 24px rgba(25, 50, 77, 0.12);
+    }
+    .btn-primary {
+      background: var(--line);
+      color: #fff;
+    }
+    .btn-secondary {
+      background: #fff;
+      color: var(--ink);
+      border: 1px solid rgba(25, 50, 77, 0.12);
+    }
+    .hint {
+      margin-top: 18px;
+      padding-top: 18px;
+      border-top: 1px solid rgba(25, 50, 77, 0.08);
+      font-size: 13px;
+      color: var(--sub);
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="eyebrow">NURSE OT LINE</div>
+    <h1>排班機器人入口</h1>
+    <p>這個頁面可以當成 LINE Rich Menu 或圖文選單的固定入口。點下方按鈕可直接開啟排班機器人互動頁。</p>
+
+    <div class="actions">
+      <a class="btn btn-primary" href="https://miniapp.line.me/2009821321-HS1gs2c4">開啟排班機器人</a>
+      <a class="btn btn-secondary" href="https://nurse-ot-line.onrender.com/">開啟 Web 首頁</a>
+    </div>
+
+    <div class="hint">
+      如果你要讓它固定顯示在使用者對話框下方，仍需到 LINE Official Account / Messaging API 後台把這個頁面或按鈕綁到 Rich Menu。
+    </div>
+  </main>
+</body>
+</html>

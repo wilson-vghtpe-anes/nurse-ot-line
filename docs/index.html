@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>加班系統</title>
+  <script src="https://static.line-scdn.net/liff/edge/versions/2.22.3/sdk.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f5f5f5;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh;
+    }
+    .card {
+      background: #fff; border-radius: 16px; padding: 40px 32px;
+      text-align: center; box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+      width: 320px;
+    }
+    .logo { font-size: 48px; margin-bottom: 12px; }
+    h1 { font-size: 20px; color: #1a1a1a; margin-bottom: 8px; }
+    p { font-size: 14px; color: #888; margin-bottom: 24px; }
+    .spinner {
+      width: 32px; height: 32px; border: 3px solid #e0e0e0;
+      border-top-color: #06C755; border-radius: 50%;
+      animation: spin 0.8s linear infinite; margin: 0 auto;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error { color: #e53935; font-size: 14px; margin-top: 16px; }
+    .bind-form { display: none; flex-direction: column; gap: 12px; margin-top: 8px; }
+    .bind-form input {
+      padding: 12px 16px; border: 1.5px solid #e0e0e0; border-radius: 10px;
+      font-size: 16px; outline: none; transition: border-color 0.2s;
+    }
+    .bind-form input:focus { border-color: #06C755; }
+    .btn {
+      padding: 13px; background: #06C755; color: #fff; border: none;
+      border-radius: 10px; font-size: 16px; font-weight: 600;
+      cursor: pointer; transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.88; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">🏥</div>
+  <h1>護理加班系統</h1>
+  <p>正在載入，請稍候…</p>
+  <div class="spinner" id="spinner"></div>
+  <div class="error" id="error-msg"></div>
+
+  <!-- 尚未綁定時顯示 -->
+  <div class="bind-form" id="bind-form">
+    <p style="margin:0;text-align:left;font-size:15px;color:#333;font-weight:500">請先輸入您的姓名</p>
+    <input type="text" id="bind-name" placeholder="例如：王小美" maxlength="20">
+    <button class="btn" id="bind-btn" onclick="bindUser()">確認綁定</button>
+  </div>
+</div>
+
+<script>
+  const LIFF_ID = "2009821321-HS1gs2c4";
+  const API_BASE = "https://nurse-ot-line.onrender.com";   // ← 替換成你的 Render URL, e.g. https://nurse-ot-line.onrender.com
+
+  let lineUserId = null;
+
+  async function init() {
+    try {
+      await liff.init({ liffId: LIFF_ID });
+
+      if (!liff.isLoggedIn()) {
+        liff.login();
+        return;
+      }
+
+      const profile = await liff.getProfile();
+      lineUserId = profile.userId;
+
+      const res = await fetch(`${API_BASE}/api/me`, {
+        headers: { "X-Line-User-Id": lineUserId }
+      });
+
+      if (res.status === 403) {
+        // 尚未綁定
+        showBindForm();
+        return;
+      }
+
+      if (!res.ok) throw new Error("伺服器錯誤");
+
+      const user = await res.json();
+      redirectByRole(user.role);
+
+    } catch (e) {
+      showError(e.message || "載入失敗，請重新開啟");
+    }
+  }
+
+  function redirectByRole(role) {
+    if (role === "admin") {
+      location.href = "admin.html";
+    } else if (role === "manager") {
+      location.href = "manager.html";
+    } else {
+      location.href = "nurse.html";
+    }
+  }
+
+  function showBindForm() {
+    document.getElementById("spinner").style.display = "none";
+    document.querySelector("p").textContent = "歡迎使用加班系統";
+    document.getElementById("bind-form").style.display = "flex";
+  }
+
+  async function bindUser() {
+    const name = document.getElementById("bind-name").value.trim();
+    if (!name) { alert("請輸入姓名"); return; }
+    const btn = document.getElementById("bind-btn");
+    btn.disabled = true; btn.textContent = "綁定中…";
+    try {
+      const res = await fetch(`${API_BASE}/api/bind`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Line-User-Id": lineUserId },
+        body: JSON.stringify({ name })
+      });
+      if (!res.ok) throw new Error("綁定失敗");
+      const meRes = await fetch(`${API_BASE}/api/me`, {
+        headers: { "X-Line-User-Id": lineUserId }
+      });
+      const user = await meRes.json();
+      redirectByRole(user.role);
+    } catch (e) {
+      btn.disabled = false; btn.textContent = "確認綁定";
+      showError(e.message);
+    }
+  }
+
+  function showError(msg) {
+    document.getElementById("spinner").style.display = "none";
+    document.getElementById("error-msg").textContent = msg;
+  }
+
+  init();
+</script>
+</body>
+</html>

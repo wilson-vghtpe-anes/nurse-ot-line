@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>加班管理系統 Admin</title>
+  <script src="https://static.line-scdn.net/liff/edge/versions/2.22.3/sdk.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; padding-bottom: 80px; }
+    .header { background: #4A148C; color: #fff; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
+    .header h1 { font-size: 18px; font-weight: 600; }
+    .header .user-name { font-size: 13px; opacity: 0.88; }
+    .tabs { display: flex; background: #fff; border-bottom: 1.5px solid #e8e8e8; position: sticky; top: 53px; z-index: 9; }
+    .tab { flex: 1; padding: 14px 0; text-align: center; font-size: 13px; color: #888; cursor: pointer; border-bottom: 2.5px solid transparent; transition: all 0.2s; }
+    .tab.active { color: #4A148C; border-bottom-color: #4A148C; font-weight: 600; }
+    .panel { display: none; padding: 16px; }
+    .panel.active { display: block; }
+    .card { background: #fff; border-radius: 14px; padding: 16px 20px; box-shadow: 0 1px 6px rgba(0,0,0,0.06); margin-bottom: 14px; }
+    .card-title { font-size: 15px; font-weight: 600; color: #1a1a1a; margin-bottom: 14px; }
+    .form-group { margin-bottom: 16px; }
+    .form-label { font-size: 13px; color: #555; margin-bottom: 6px; display: block; font-weight: 500; }
+    .form-control {
+      width: 100%; padding: 12px 14px; border: 1.5px solid #e0e0e0;
+      border-radius: 10px; font-size: 15px; outline: none; background: #fff;
+      transition: border-color 0.2s;
+    }
+    input.form-control {
+      display: block;
+      min-width: 0;
+      max-width: 100%;
+    }
+    input[type="date"].form-control,
+    input[type="month"].form-control {
+      -webkit-appearance: none;
+      appearance: none;
+      padding-right: 10px;
+      min-height: 46px;
+      line-height: 1.2;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    input[type="date"].form-control::-webkit-calendar-picker-indicator,
+    input[type="month"].form-control::-webkit-calendar-picker-indicator {
+      margin: 0;
+      opacity: 0.85;
+    }
+    @media (max-width: 480px) {
+      input[type="date"].form-control,
+      input[type="month"].form-control {
+        font-size: 16px;
+        padding-left: 12px;
+        padding-right: 8px;
+      }
+    }
+    .form-control:focus { border-color: #4A148C; }
+    select.form-control {
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 14px center;
+      padding-right: 36px;
+    }
+
+    /* ── Drum Picker ── */
+    .drum-wrapper {
+      display: flex; align-items: center; justify-content: center;
+      background: #f7f7f7; border: 1.5px solid #e0e0e0; border-radius: 12px;
+      overflow: hidden; height: 180px; position: relative; user-select: none;
+    }
+    .drum-wrapper::before, .drum-wrapper::after {
+      content: ''; position: absolute; left: 12px; right: 12px;
+      height: 1px; background: #4A148C; z-index: 3; pointer-events: none;
+    }
+    .drum-wrapper::before { top: calc(50% - 22px); }
+    .drum-wrapper::after  { top: calc(50% + 22px); }
+    .drum-mask { position: absolute; left: 0; right: 0; height: 60px; z-index: 2; pointer-events: none; }
+    .drum-mask.top    { top: 0;    background: linear-gradient(to bottom, #f7f7f7, transparent); }
+    .drum-mask.bottom { bottom: 0; background: linear-gradient(to top,   #f7f7f7, transparent); }
+    .drum-col {
+      flex: 1; height: 100%; overflow-y: scroll; scroll-snap-type: y mandatory;
+      -webkit-overflow-scrolling: touch; scrollbar-width: none; position: relative;
+    }
+    .drum-col::-webkit-scrollbar { display: none; }
+    .drum-item {
+      height: 44px; display: flex; align-items: center; justify-content: center;
+      font-size: 22px; font-weight: 500; color: #bbb; scroll-snap-align: center;
+      transition: color 0.15s, font-size 0.15s; cursor: pointer;
+    }
+    .drum-item.selected { color: #1a1a1a; font-size: 24px; font-weight: 600; }
+    .drum-separator {
+      font-size: 22px; font-weight: 600; color: #333; padding: 0 6px;
+      line-height: 180px; z-index: 4; pointer-events: none;
+    }
+    .drum-label {
+      font-size: 11px; color: #aaa; text-align: center;
+      margin-top: 6px; display: flex; justify-content: space-around; padding: 0 20px;
+    }
+    .duration-display {
+      text-align: center; font-size: 14px; color: #4A148C;
+      font-weight: 600; margin-top: 8px; min-height: 20px;
+    }
+    .btn-submit {
+      width: 100%; padding: 14px; background: #4A148C; color: #fff; border: none;
+      border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 4px;
+    }
+    .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+    .pending-item { padding: 14px 0; border-bottom: 1px solid #f0f0f0; }
+    .pending-item:last-child { border-bottom: none; }
+    .pending-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .pending-name { font-size: 15px; font-weight: 600; color: #1a1a1a; }
+    .pending-mins { font-size: 15px; font-weight: 600; color: #4A148C; }
+    .pending-detail { font-size: 13px; color: #666; margin-bottom: 10px; }
+    .review-btns { display: flex; gap: 10px; }
+    .btn-approve { flex: 1; padding: 9px; background: #06C755; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .btn-reject { flex: 1; padding: 9px; background: #fff; color: #e53935; border: 1.5px solid #e53935; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .empty { text-align: center; color: #aaa; font-size: 14px; padding: 40px 0; }
+    .filter-row { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+    .filter-chip { padding: 7px 14px; border: 1.5px solid #e0e0e0; border-radius: 20px; font-size: 13px; cursor: pointer; background: #fff; color: #555; transition: all 0.15s; }
+    .filter-chip.active { background: #4A148C; color: #fff; border-color: #4A148C; }
+    .month-input { display: none; gap: 8px; margin-bottom: 14px; align-items: center; }
+    .month-input.show { display: flex; }
+    .month-input input { flex: 1; padding: 9px 12px; border: 1.5px solid #e0e0e0; border-radius: 8px; font-size: 14px; }
+    .month-input .btn-go { padding: 9px 16px; background: #4A148C; color: #fff; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; }
+    .summary-card { background: #F3E5F5; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+    .summary-card .total-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+    .summary-card .total-label { font-size: 13px; color: #7B1FA2; }
+    .summary-card .total-val { font-size: 16px; font-weight: 700; color: #4A148C; }
+    .person-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(74,20,140,0.1); font-size: 14px; }
+    .person-row:last-child { border-bottom: none; }
+    .record-item { padding: 12px 0; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: flex-start; }
+    .record-item:last-child { border-bottom: none; }
+    .record-left .name { font-size: 14px; font-weight: 600; color: #1a1a1a; }
+    .record-left .detail { font-size: 13px; color: #666; margin-top: 2px; }
+    .record-right .mins { font-size: 14px; font-weight: 600; color: #333; }
+    .record-right .status { margin-top: 4px; }
+    .month-bar { display: flex; align-items: center; padding: 10px 0; border-bottom: 1px solid #f5f5f5; gap: 10px; }
+    .month-bar:last-child { border-bottom: none; }
+    .month-label { font-size: 14px; font-weight: 500; width: 52px; color: #333; flex-shrink: 0; }
+    .bar-track { flex: 1; height: 8px; background: #EDE7F6; border-radius: 4px; overflow: hidden; }
+    .bar-fill { height: 100%; background: #7B1FA2; border-radius: 4px; transition: width 0.6s ease; }
+    .month-val { font-size: 13px; color: #555; width: 80px; text-align: right; flex-shrink: 0; }
+    .member-item { display: flex; align-items: center; padding: 12px 0; border-bottom: 1px solid #f0f0f0; gap: 12px; }
+    .member-item:last-child { border-bottom: none; }
+    .member-avatar { width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+    .avatar-admin { background: #EDE7F6; }
+    .avatar-manager { background: #E3F2FD; }
+    .avatar-nurse { background: #E8F5E9; }
+    .member-info { flex: 1; }
+    .member-name { font-size: 15px; font-weight: 600; color: #1a1a1a; }
+    .member-role { font-size: 12px; margin-top: 2px; }
+    .role-admin { color: #4A148C; }
+    .role-manager { color: #1565C0; }
+    .role-nurse { color: #2E7D32; }
+    .role-select { padding: 6px 10px; border: 1.5px solid #e0e0e0; border-radius: 8px; font-size: 13px; background: #fff; color: #333; cursor: pointer; }
+
+    /* ── 早走勾選 ── */
+    .leave-early-label {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 14px; border: 1.5px solid #e0e0e0; border-radius: 10px;
+      cursor: pointer; font-size: 15px; color: #333; transition: all 0.2s;
+      background: #fff;
+    }
+    .leave-early-label:has(input:checked) {
+      border-color: #e53935; background: #fff5f5; color: #c62828;
+    }
+    .leave-early-label input { display: none; }
+    .leave-early-box {
+      width: 20px; height: 20px; border: 2px solid #ccc; border-radius: 5px;
+      flex-shrink: 0; position: relative; transition: all 0.15s;
+    }
+    .leave-early-label:has(input:checked) .leave-early-box {
+      background: #e53935; border-color: #e53935;
+    }
+    .leave-early-label:has(input:checked) .leave-early-box::after {
+      content: ''; position: absolute; left: 4px; top: 1px;
+      width: 8px; height: 12px; border: 2px solid #fff;
+      border-top: none; border-left: none; transform: rotate(45deg);
+    }
+    .drum-wrapper.leave-early-mode::before,
+    .drum-wrapper.leave-early-mode::after { background: #e53935; }
+    .duration-display.leave-early-mode { color: #e53935 !important; }
+  </style>
+</head>
+<body>
+<div class="header">
+  <h1>加班管理系統</h1>
+  <span class="user-name" id="user-name">載入中</span>
+</div>
+
+<div class="tabs">
+  <div class="tab" onclick="switchTab('submit')">申請加班</div>
+  <div class="tab active" onclick="switchTab('pending')">待審核</div>
+  <div class="tab" onclick="switchTab('all')">全員</div>
+  <div class="tab" onclick="switchTab('monthly')">統計</div>
+  <div class="tab" onclick="switchTab('members')">成員</div>
+</div>
+
+<div class="panel" id="panel-submit">
+  <div class="card">
+    <div class="card-title">申請加班</div>
+
+    <div class="form-group">
+      <label class="form-label">加班日期</label>
+      <input type="date" class="form-control" id="work-date">
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">班別</label>
+      <select class="form-control" id="shift-type">
+        <option value="">請選擇班別</option>
+        <option value="7-3">7-3</option>
+        <option value="9-5">9-5</option>
+        <option value="10-6">10-6</option>
+        <option value="12-8">12-8</option>
+        <option value="3-11">3-11</option>
+        <option value="11-7">11-7</option>
+        <option value="其他">其他</option>
+      </select>
+    </div>
+
+    <div class="form-group" id="other-shift-group" style="display:none">
+      <label class="form-label">其他班別說明</label>
+      <input type="text" class="form-control" id="other-shift-text" placeholder="請輸入實際班別">
+    </div>
+
+
+    <div class="form-group">
+      <label class="leave-early-label" id="leave-early-label">
+        <input type="checkbox" id="leave-early-check">
+        <span class="leave-early-box"></span>
+        <span>這是早走申請</span>
+      </label>
+    </div>
+    <div class="form-group">
+      <label class="form-label" id="duration-label">加班時數</label>
+      <div class="drum-wrapper" id="drum-wrapper">
+        <div class="drum-mask top"></div>
+        <div class="drum-mask bottom"></div>
+        <div class="drum-col" id="drum-hour"></div>
+        <div class="drum-separator">:</div>
+        <div class="drum-col" id="drum-min"></div>
+      </div>
+      <div class="drum-label">
+        <span style="flex:1;text-align:center">小時</span>
+        <span style="width:32px"></span>
+        <span style="flex:1;text-align:center">分鐘</span>
+      </div>
+      <div class="duration-display" id="duration-display">請撥動選擇時間</div>
+    </div>
+
+    <button type="button" class="btn-submit" id="submit-btn">送出申請</button>
+  </div>
+</div>
+
+<div class="panel active" id="panel-pending">
+  <div class="card">
+    <div class="card-title" id="pending-title">待審核申請</div>
+    <div id="pending-list"><div class="empty">載入中</div></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-all">
+  <div class="filter-row">
+    <div class="filter-chip active" onclick="setAllFilter('week', this)">當週</div>
+    <div class="filter-chip" onclick="setAllFilter('month', this)">當月</div>
+    <div class="filter-chip" onclick="setAllFilter('pick', this)">指定月份</div>
+  </div>
+  <div class="month-input" id="month-picker">
+    <input type="month" id="pick-month">
+    <button class="btn-go" onclick="loadAll()">查詢</button>
+  </div>
+  <div id="all-summary"></div>
+  <div class="card" style="padding:8px 16px">
+    <div id="all-list"><div class="empty">尚未查詢資料</div></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-monthly">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button type="button" onclick="changeYear(-1)" style="background:none;border:none;font-size:20px;cursor:pointer;color:#4A148C">‹</button>
+    <span id="year-label" style="font-size:16px;font-weight:600;color:#1a1a1a;flex:1;text-align:center"></span>
+    <button type="button" onclick="changeYear(1)" style="background:none;border:none;font-size:20px;cursor:pointer;color:#4A148C">›</button>
+  </div>
+  <div class="card" style="padding:16px 20px">
+    <div id="monthly-chart"><div class="empty">載入中</div></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-members">
+  <div class="card">
+    <div class="card-title" id="members-title">成員清單</div>
+    <div id="members-list"><div class="empty">載入中</div></div>
+  </div>
+</div>
+
+<script src="share.js"></script>
+<script>
+
+
+
+  // ── Drum Picker ──────────────────────────────────────────────────────────
+  const hourCol = document.getElementById("drum-hour");
+  const minCol  = document.getElementById("drum-min");
+
+  function buildDrum(colEl, values) {
+    const pad = () => {
+      const d = document.createElement("div");
+      d.className = "drum-item"; d.style.visibility = "hidden"; return d;
+    };
+    colEl.appendChild(pad()); colEl.appendChild(pad());
+    values.forEach(v => {
+      const d = document.createElement("div");
+      d.className = "drum-item";
+      d.textContent = String(v).padStart(2, "0");
+      d.dataset.value = v;
+      colEl.appendChild(d);
+    });
+    colEl.appendChild(pad()); colEl.appendChild(pad());
+    colEl.scrollTop = 0;
+    highlightCenter(colEl);
+  }
+
+  function highlightCenter(colEl) {
+    const center = colEl.scrollTop + colEl.clientHeight / 2;
+    colEl.querySelectorAll(".drum-item").forEach(item => {
+      const itemCenter = item.offsetTop + 22;
+      item.classList.toggle("selected", Math.abs(itemCenter - center) < 22);
+    });
+  }
+
+  function getSelectedValue(colEl) {
+    const sel = colEl.querySelector(".drum-item.selected");
+    return sel ? parseInt(sel.dataset.value) : 0;
+  }
+
+  function updateDurationDisplay() {
+    const h = getSelectedValue(hourCol);
+    const m = getSelectedValue(minCol);
+    const total = h * 60 + m;
+    const el = document.getElementById("duration-display");
+    if (total === 0) {
+      el.textContent = "請撥動選擇時間"; el.style.color = "#aaa";
+    } else {
+      let label = h > 0 && m > 0 ? h + " 小時 " + m + " 分鐘"
+                : h > 0 ? h + " 小時" : m + " 分鐘";
+      el.textContent = "已選：" + label; el.style.color = "#4A148C";
+    }
+  }
+
+  function getSelectedMinutes() {
+    return getSelectedValue(hourCol) * 60 + getSelectedValue(minCol);
+  }
+
+  function attachDrumEvents(colEl) {
+    let t;
+    colEl.addEventListener("scroll", () => {
+      highlightCenter(colEl);
+      clearTimeout(t);
+      t = setTimeout(() => {
+        const nearest = Math.round(colEl.scrollTop / 44) * 44;
+        colEl.scrollTo({ top: nearest, behavior: "smooth" });
+        setTimeout(() => { highlightCenter(colEl); updateDurationDisplay(); }, 150);
+      }, 80);
+    }, { passive: true });
+  }
+
+  buildDrum(hourCol, Array.from({ length: 24 }, (_, i) => i));
+  buildDrum(minCol,  Array.from({ length: 60 }, (_, i) => i));
+  attachDrumEvents(hourCol);
+  attachDrumEvents(minCol);
+  updateDurationDisplay();
+
+  function onLeaveEarlyChange() {
+    const isLeave = document.getElementById("leave-early-check").checked;
+    const wrapper = document.getElementById("drum-wrapper");
+    const display = document.getElementById("duration-display");
+    const label   = document.getElementById("duration-label");
+    wrapper.classList.toggle("leave-early-mode", isLeave);
+    display.classList.toggle("leave-early-mode", isLeave);
+    if (label) label.textContent = isLeave ? "早走時數" : "加班時數";
+    updateDurationDisplay();
+  }
+
+  function onShiftChange() {
+    const shiftType = document.getElementById("shift-type").value;
+    document.getElementById("other-shift-group").style.display = shiftType === "其他" ? "block" : "none";
+  }
+
+  async function submitOvertime() {
+    const workDate = document.getElementById("work-date").value;
+    const shiftType = document.getElementById("shift-type").value;
+    const otherText = document.getElementById("other-shift-text").value.trim();
+    const isLeaveEarly = document.getElementById("leave-early-check").checked;
+
+    if (!workDate) {
+      showToast("請選擇加班日期", false);
+      return;
+    }
+    if (!shiftType) {
+      showToast("請選擇班別", false);
+      return;
+    }
+    if (shiftType === "其他" && !otherText) {
+      showToast("請填寫其他班別說明", false);
+      return;
+    }
+    if (!getSelectedMinutes()) {
+      showToast("請選擇時數", false);
+      return;
+    }
+
+    const button = document.getElementById("submit-btn");
+    button.disabled = true;
+    button.textContent = "送出中...";
+    loading(true);
+
+    try {
+      const res = await apiFetch("/api/overtime", {
+        method: "POST",
+        body: JSON.stringify({
+          work_date: workDate,
+          shift_type: shiftType,
+          other_shift_text: otherText || null,
+          overtime_minutes: getSelectedMinutes(),
+          record_type: isLeaveEarly ? "leave_early" : "overtime",
+        }),
+      });
+      if (!res.ok) {
+        throw new Error(await getErrorMessage(res, "送出申請失敗"));
+      }
+      showToast(isLeaveEarly ? "已送出早走申請，等待審核" : "已送出加班申請");
+      document.getElementById("work-date").value = "";
+      document.getElementById("shift-type").value = "";
+      document.getElementById("other-shift-text").value = "";
+      document.getElementById("other-shift-group").style.display = "none";
+      document.getElementById("leave-early-check").checked = false;
+      onLeaveEarlyChange();
+      hourCol.scrollTo({ top: 0, behavior: "smooth" });
+      minCol.scrollTo({ top: 0, behavior: "smooth" });
+      setTimeout(() => { highlightCenter(hourCol); highlightCenter(minCol); updateDurationDisplay(); }, 200);
+      document.getElementById("work-date").valueAsDate = new Date();
+      loadPending();
+    } catch (error) {
+      showToast(error.message, false);
+    } finally {
+      button.disabled = false;
+      button.textContent = "送出申請";
+      loading(false);
+    }
+  }
+
+  let allFilter = "week";
+  let currentYear = new Date().getFullYear();
+  const ROLE_ICONS = { admin: "🔑", manager: "👔", nurse: "👩‍⚕️" };
+  const ROLE_LABELS = { admin: "管理員", manager: "組長", nurse: "護理師" };
+
+  async function loadPending() {
+    loading(true);
+    try {
+      const res = await apiFetch("/api/records/pending");
+      const data = await res.json();
+      const count = data.count || 0;
+      document.getElementById("pending-title").innerHTML =
+        `待審核申請 ${count > 0 ? `<span style="background:#FFF3CD;color:#856404;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:500">${count}</span>` : ""}`;
+
+      if (count === 0) {
+        document.getElementById("pending-list").innerHTML = `<div class="empty">目前沒有待審核申請 🎉</div>`;
+        return;
+      }
+
+      document.getElementById("pending-list").innerHTML = data.records.map((record) => `
+        <div class="pending-item" id="item-${record.id}">
+          <div class="pending-header">
+            <span class="pending-name">${record.applicant_name}</span>
+            <span class="pending-mins">${formatMinutes(record.overtime_minutes)}</span>
+          </div>
+          <div class="pending-detail">${record.work_date}　${shiftLabel(record)}</div>
+          <div class="review-btns">
+            <button type="button" class="btn-approve" data-review-action="approve" data-record-id="${record.id}">核准</button>
+            <button type="button" class="btn-reject" data-review-action="reject" data-record-id="${record.id}">拒絕</button>
+          </div>
+        </div>
+      `).join("");
+      bindPendingActions();
+    } catch {
+      document.getElementById("pending-list").innerHTML = `<div class="empty">載入失敗</div>`;
+    } finally {
+      loading(false);
+    }
+  }
+
+  async function review(id, action) {
+    const label = action === "approve" ? "核准" : "拒絕";
+    const confirmed = await showConfirm(`確定要${label}這筆申請嗎？`, {
+      title: "審核確認",
+      confirmText: label,
+      danger: action === "reject",
+    });
+    if (!confirmed) return;
+
+    loading(true);
+    try {
+      const res = await apiFetch(`/api/records/${id}/review`, {
+        method: "POST",
+        body: JSON.stringify({ action }),
+      });
+      if (!res.ok) {
+        throw new Error(await getErrorMessage(res, "操作失敗"));
+      }
+      showToast(action === "approve" ? "已核准" : "已拒絕");
+      document.getElementById(`item-${id}`)?.remove();
+
+      const remaining = document.querySelectorAll(".pending-item").length;
+      document.getElementById("pending-title").innerHTML =
+        `待審核申請 ${remaining > 0 ? `<span style="background:#FFF3CD;color:#856404;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:500">${remaining}</span>` : ""}`;
+      if (remaining === 0) {
+        document.getElementById("pending-list").innerHTML = `<div class="empty">目前沒有待審核申請 🎉</div>`;
+      }
+    } catch (error) {
+      showToast(error.message, false);
+    } finally {
+      loading(false);
+    }
+  }
+
+  function bindPendingActions() {
+    const list = document.getElementById("pending-list");
+    const buttons = list.querySelectorAll("[data-review-action]");
+    buttons.forEach((button) => {
+      if (button.dataset.bound === "true") return;
+      button.dataset.bound = "true";
+
+      const handler = (event) => {
+        event.preventDefault();
+        if (button.dataset.busy === "true") return;
+        const recordId = (button.getAttribute("data-record-id") || "").trim();
+        const action = button.getAttribute("data-review-action") || "";
+        if (!recordId || !action) {
+          showToast("無法取得申請編號，請重新整理後再試", false);
+          return;
+        }
+        button.dataset.busy = "true";
+        review(recordId, action)
+          .finally(() => {
+            window.setTimeout(() => {
+              button.dataset.busy = "false";
+            }, 300);
+          });
+      };
+
+      button.addEventListener("click", handler);
+      button.addEventListener("touchend", handler, { passive: false });
+    });
+  }
+
+  function setAllFilter(type, el) {
+    allFilter = type;
+    document.querySelectorAll(".filter-chip").forEach((chip) => chip.classList.remove("active"));
+    el.classList.add("active");
+    document.getElementById("month-picker").classList.toggle("show", type === "pick");
+    if (type !== "pick") loadAll();
+  }
+
+  async function loadAll() {
+    loading(true);
+    let url = "/api/records/all";
+    if (allFilter === "week") url += "?week=current";
+    else if (allFilter === "month") url += "?month=current";
+    else {
+      const month = document.getElementById("pick-month").value;
+      if (!month) {
+        loading(false);
+        showToast("請先選擇月份", false);
+        return;
+      }
+      url += `?month=${month}`;
+    }
+
+    try {
+      const res = await apiFetch(url);
+      const data = await res.json();
+      if (data.count === 0) {
+        document.getElementById("all-summary").innerHTML = "";
+        document.getElementById("all-list").innerHTML = `<div class="empty">此區間沒有記錄</div>`;
+        return;
+      }
+
+      const personRows = Object.entries(data.approved_person_totals || {})
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, min]) => `<div class="person-row"><span>${name}</span><span style="font-weight:600;color:#4A148C">${formatMinutes(min)}</span></div>`)
+        .join("");
+
+      if ((data.approved_count || 0) === 0) {
+        document.getElementById("all-summary").innerHTML = `
+          <div class="summary-card">
+            <div class="total-row"><span class="total-label">已核准 0 筆</span><span class="total-val">0小時</span></div>
+          </div>
+        `;
+      } else {
+        document.getElementById("all-summary").innerHTML = `
+          <div class="summary-card">
+            <div class="total-row"><span class="total-label">已核准 ${data.approved_count} 筆</span><span class="total-val">${formatMinutes(data.approved_total_minutes || 0)}</span></div>
+            ${personRows}
+          </div>
+        `;
+      }
+
+      document.getElementById("all-list").innerHTML = data.records.map((record) => `
+        <div class="record-item">
+          <div class="record-left">
+            <div class="name">${record.applicant_name}</div>
+            <div class="detail">${record.work_date}　${shiftLabel(record)}</div>
+          </div>
+          <div class="record-right">
+            <div class="mins">${formatMinutes(record.overtime_minutes)}</div>
+            <div class="status">${statusBadge(record.status)}</div>
+          </div>
+        </div>
+      `).join("");
+    } catch {
+      document.getElementById("all-list").innerHTML = `<div class="empty">查詢失敗</div>`;
+    } finally {
+      loading(false);
+    }
+  }
+
+  function changeYear(delta) {
+    currentYear += delta;
+    loadMonthly();
+  }
+
+  async function loadMonthly() {
+    document.getElementById("year-label").textContent = `${currentYear} 年`;
+    loading(true);
+    try {
+      const res = await apiFetch(`/api/records/monthly-summary?year=${currentYear}`);
+      const data = await res.json();
+      const maxMin = Math.max(...data.months.map((month) => month.total_minutes), 1);
+
+      document.getElementById("monthly-chart").innerHTML = data.months.map((month) => {
+        const pct = Math.round((month.total_minutes / maxMin) * 100);
+        return `
+          <div class="month-bar">
+            <span class="month-label">${month.month.slice(5)}月</span>
+            <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+            <span class="month-val">${month.count > 0 ? formatMinutes(month.total_minutes) : "—"}</span>
+          </div>
+        `;
+      }).join("");
+    } catch {
+      document.getElementById("monthly-chart").innerHTML = `<div class="empty">載入失敗</div>`;
+    } finally {
+      loading(false);
+    }
+  }
+
+  async function loadMembers() {
+    loading(true);
+    try {
+      const res = await apiFetch("/api/members");
+      const data = await res.json();
+      document.getElementById("members-title").textContent = `成員清單（${data.count} 人）`;
+      document.getElementById("members-list").innerHTML = data.members.map((member) => {
+        const role = member.role || "nurse";
+        return `
+          <div class="member-item">
+            <div class="member-avatar avatar-${role}">${ROLE_ICONS[role] || "👤"}</div>
+            <div class="member-info">
+              <div class="member-name">${member.name}</div>
+              <div class="member-role role-${role}">${ROLE_LABELS[role] || role}</div>
+            </div>
+            <select class="role-select" onchange="changeRole('${member.name}', this.value, this)" data-current="${role}">
+              <option value="nurse" ${role === "nurse" ? "selected" : ""}>護理師</option>
+              <option value="manager" ${role === "manager" ? "selected" : ""}>組長</option>
+              <option value="admin" ${role === "admin" ? "selected" : ""}>管理員</option>
+            </select>
+          </div>
+        `;
+      }).join("");
+    } catch {
+      document.getElementById("members-list").innerHTML = `<div class="empty">載入失敗</div>`;
+    } finally {
+      loading(false);
+    }
+  }
+
+  async function changeRole(name, newRole, selectEl) {
+    const prev = selectEl.dataset.current;
+    if (newRole === prev) return;
+
+    const label = { nurse: "護理師", manager: "組長", admin: "管理員" }[newRole];
+    const confirmed = await showConfirm(`確定要將 ${name} 設為${label}嗎？`, {
+      title: "角色變更",
+      confirmText: "變更",
+      danger: newRole === "admin",
+    });
+    if (!confirmed) {
+      selectEl.value = prev;
+      return;
+    }
+
+    loading(true);
+    try {
+      const res = await apiFetch("/api/members/role", {
+        method: "POST",
+        body: JSON.stringify({ target_name: name, role: newRole }),
+      });
+      if (!res.ok) {
+        throw new Error(await getErrorMessage(res, "角色更新失敗"));
+      }
+      showToast(`已將 ${name} 設為${label}`);
+      selectEl.dataset.current = newRole;
+      loadMembers();
+    } catch (error) {
+      showToast(error.message, false);
+      selectEl.value = prev;
+    } finally {
+      loading(false);
+    }
+  }
+
+  function switchTab(tab) {
+    ["submit", "pending", "all", "monthly", "members"].forEach((name) => {
+      document.getElementById(`panel-${name}`).classList.toggle("active", name === tab);
+    });
+    document.querySelectorAll(".tab").forEach((el, index) => {
+      el.classList.toggle("active", ["submit", "pending", "all", "monthly", "members"][index] === tab);
+    });
+
+    if (tab === "submit") {
+      document.getElementById("work-date").valueAsDate = new Date();
+    } else if (tab === "pending") loadPending();
+    else if (tab === "all") loadAll();
+    else if (tab === "monthly") loadMonthly();
+    else if (tab === "members") loadMembers();
+  }
+
+  async function init() {
+    const user = await initLiff(LIFF_ID, "admin");
+    if (!user) return;
+    bindPendingActions();
+    document.getElementById("submit-btn").addEventListener("click", submitOvertime);
+  document.getElementById("leave-early-check").addEventListener("change", onLeaveEarlyChange);
+    document.getElementById("shift-type").addEventListener("change", onShiftChange);
+    document.getElementById("user-name").textContent = `${user.name}（admin）`;
+    document.getElementById("year-label").textContent = `${currentYear} 年`;
+    document.getElementById("work-date").valueAsDate = new Date();
+    loadPending();
+  }
+
+  init();
+</script>
+</body>
+</html>
