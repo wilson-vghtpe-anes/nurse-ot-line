@@ -103,9 +103,12 @@ async function getErrorMessage(response, fallback = "操作失敗") {
 }
 
 function formatMinutes(minutes) {
-  const hours = Math.floor(minutes / 60);
-  const remaining = minutes % 60;
-  return remaining === 0 ? `${hours}小時` : `${hours}小時${remaining}分鐘`;
+  const prefix = minutes < 0 ? "早走 " : "";
+  const abs = Math.abs(minutes);
+  const hours = Math.floor(abs / 60);
+  const remaining = abs % 60;
+  const timeStr = remaining === 0 ? `${hours}小時` : hours === 0 ? `${remaining}分鐘` : `${hours}小時${remaining}分鐘`;
+  return prefix + timeStr;
 }
 
 function statusBadge(status) {
