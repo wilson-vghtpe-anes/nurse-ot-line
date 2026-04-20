@@ -159,6 +159,13 @@
       min-height: 20px;
     }
 
+    .extra-filters { display: flex; gap: 8px; margin-bottom: 14px; }
+    .extra-filters select {
+      flex: 1; padding: 8px 12px; border: 1.5px solid #e0e0e0;
+      border-radius: 8px; font-size: 14px; background: #fff; outline: none;
+    }
+    .extra-filters select:focus { border-color: #06C755; }
+
     /* 按鈕 */
     .btn-submit {
       width: 100%; padding: 14px; background: #06C755; color: #fff; border: none;
@@ -336,6 +343,18 @@
     <span style="color:#aaa;font-size:13px">～</span>
     <input type="date" id="history-range-end">
     <button class="btn-go" id="history-range-go">查詢</button>
+  </div>
+  <div class="extra-filters">
+    <select id="history-filter-shift" onchange="applyHistoryFilters()">
+      <option value="">全部班別</option>
+      <option value="7-3">7-3</option>
+      <option value="9-5">9-5</option>
+      <option value="10-6">10-6</option>
+      <option value="12-8">12-8</option>
+      <option value="3-11">3-11</option>
+      <option value="11-7">11-7</option>
+      <option value="其他">其他</option>
+    </select>
   </div>
   <div class="summary-bar" id="history-summary-bar" style="display:none">
     <span>共 <strong id="history-rec-count">0</strong> 筆</span>
@@ -596,6 +615,7 @@
 
   // ── 歷史加班 ──────────────────────────────────────────────────────────────
   let currentHFilter = "month";
+  let historyCache = [];
 
   function setHFilter(type, el) {
     currentHFilter = type;
@@ -622,7 +642,8 @@
     try {
       const res = await apiFetch(url);
       const data = await res.json();
-      renderHistory(data.records, data.total_minutes, data.count);
+      historyCache = data.records || [];
+      applyHistoryFilters();
     } catch (e) {
       document.getElementById("history-list").innerHTML = `<div class="empty">查詢失敗</div>`;
     } finally {
@@ -630,10 +651,22 @@
     }
   }
 
+  function applyHistoryFilters() {
+    const shift = document.getElementById("history-filter-shift").value;
+    let filtered = historyCache;
+    if (shift) {
+      filtered = filtered.filter(r =>
+        shift === "其他" ? r.shift_type.startsWith("其他") : r.shift_type === shift
+      );
+    }
+    const totalMin = filtered.reduce((s, r) => s + r.overtime_minutes, 0);
+    renderHistory(filtered, totalMin, filtered.length);
+  }
+
   function renderHistory(records, totalMin, count) {
     const summaryBar = document.getElementById("history-summary-bar");
     document.getElementById("history-rec-count").textContent = count;
-    document.getElementById("history-rec-total").textContent = totalMin >= 0 ? formatMinutes(totalMin) : "—";
+    document.getElementById("history-rec-total").textContent = formatMinutes(totalMin);
     summaryBar.style.display = count > 0 ? "flex" : "none";
 
     if (!records || records.length === 0) {
