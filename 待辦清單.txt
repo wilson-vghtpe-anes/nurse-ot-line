@@ -1,0 +1,7 @@
+== 待辦 / 想法清單 ==
+
+[ ] CSV 匯出功能
+    - 在 manager / admin 全員查詢頁面加「匯出 CSV」按鈕
+    - 篩好條件（班別、姓名、時間區間）後一鍵下載
+    - 後端新增 GET /api/history/export endpoint 回傳 CSV 檔
+    - 供行政人員用 Excel 開啟分析
