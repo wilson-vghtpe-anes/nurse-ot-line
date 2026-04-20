@@ -686,6 +686,66 @@ def api_history_me(
     return {"records": records, "total_minutes": total_minutes, "count": len(records)}
 
 
+@app.get("/api/history/all")
+def api_history_all(
+    request: Request,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    month: Optional[str] = None,
+    week: Optional[str] = None,  # "current"
+):
+    """全員加班歷史（overtime_history，manager / admin）。"""
+    require_manager(get_current_user(request))
+    filters = []
+    now = datetime.now()
+    if week == "current":
+        s, e = week_range_of(now)
+        filters += [f"work_date=gte.{s}", f"work_date=lte.{e}"]
+    elif month:
+        try:
+            datetime.strptime(month + "-01", "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid month format, use YYYY-MM")
+        s, e = month_range(month)
+        filters += [f"work_date=gte.{s}", f"work_date=lte.{e}"]
+    elif start or end:
+        if start:
+            filters.append(f"work_date=gte.{start}")
+        if end:
+            filters.append(f"work_date=lte.{end}")
+    q = "&".join(filters)
+    base = f"{SUPABASE_URL}/rest/v1/overtime_history"
+    url = f"{base}?{q}&order=work_date.asc&select=*" if q else f"{base}?order=work_date.asc&select=*"
+    resp = requests.get(url, headers=SUPABASE_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS)
+    if resp.status_code != 200:
+        raise HTTPException(status_code=500, detail="Query failed")
+    records = resp.json()
+    person_totals: dict = {}
+    for r in records:
+        name = r.get("name") or "未知"
+        person_totals[name] = person_totals.get(name, 0) + r["overtime_minutes"]
+    total_minutes = sum(r["overtime_minutes"] for r in records)
+    return {"records": records, "count": len(records), "total_minutes": total_minutes, "person_totals": person_totals}
+
+
+@app.get("/api/history/monthly-summary")
+def api_history_monthly_summary(request: Request, year: Optional[int] = None):
+    """全年各月統計（overtime_history，manager / admin）。"""
+    require_manager(get_current_user(request))
+    year = year or datetime.now().year
+    result = []
+    for m in range(1, 13):
+        ym = f"{year}-{m:02d}"
+        s, e = month_range(ym)
+        url = (f"{SUPABASE_URL}/rest/v1/overtime_history"
+               f"?work_date=gte.{s}&work_date=lte.{e}&select=overtime_minutes")
+        resp = requests.get(url, headers=SUPABASE_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS)
+        recs = resp.json() if resp.status_code == 200 else []
+        total = sum(r["overtime_minutes"] for r in recs)
+        result.append({"month": ym, "count": len(recs), "total_minutes": total})
+    return {"year": year, "months": result}
+
+
 @app.post("/api/overtime")
 async def api_overtime_submit(request: Request, body: OvertimeSubmit):
     """提交加班申請。"""

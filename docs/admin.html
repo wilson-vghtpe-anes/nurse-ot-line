@@ -134,6 +134,14 @@
     .record-left .detail { font-size: 13px; color: #666; margin-top: 2px; }
     .record-right .mins { font-size: 14px; font-weight: 600; color: #333; }
     .record-right .status { margin-top: 4px; }
+    .extra-filters { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+    .extra-filters select, .extra-filters input[type="text"] {
+      flex: 1; min-width: 120px; padding: 8px 12px; border: 1.5px solid #e0e0e0;
+      border-radius: 8px; font-size: 14px; background: #fff; outline: none;
+    }
+    .extra-filters select { max-width: 140px; }
+    .extra-filters input[type="text"]:focus,
+    .extra-filters select:focus { border-color: #4A148C; }
     .month-bar { display: flex; align-items: center; padding: 10px 0; border-bottom: 1px solid #f5f5f5; gap: 10px; }
     .month-bar:last-child { border-bottom: none; }
     .month-label { font-size: 14px; font-weight: 500; width: 52px; color: #333; flex-shrink: 0; }
@@ -269,6 +277,20 @@
   <div class="month-input" id="month-picker">
     <input type="month" id="pick-month">
     <button class="btn-go" onclick="loadAll()">查詢</button>
+  </div>
+  <div class="extra-filters">
+    <select id="filter-shift" onchange="applyFilters()">
+      <option value="">全部班別</option>
+      <option value="7-3">7-3</option>
+      <option value="9-5">9-5</option>
+      <option value="10-6">10-6</option>
+      <option value="12-8">12-8</option>
+      <option value="3-11">3-11</option>
+      <option value="11-7">11-7</option>
+      <option value="其他">其他</option>
+    </select>
+    <input type="text" id="filter-name" placeholder="搜尋姓名…" list="name-suggestions" oninput="applyFilters()">
+    <datalist id="name-suggestions"></datalist>
   </div>
   <div id="all-summary"></div>
   <div class="card" style="padding:8px 16px">
@@ -451,6 +473,7 @@
   }
 
   let allFilter = "week";
+  let allRecordsCache = [];
   let currentYear = new Date().getFullYear();
   const ROLE_ICONS = { admin: "🔑", manager: "👔", nurse: "👩‍⚕️" };
   const ROLE_LABELS = { admin: "管理員", manager: "組長", nurse: "護理師" };
@@ -564,9 +587,9 @@
 
   async function loadAll() {
     loading(true);
-    let url = "/api/records/all";
+    let url = "/api/history/all";
     if (allFilter === "week") url += "?week=current";
-    else if (allFilter === "month") url += "?month=current";
+    else if (allFilter === "month") url += "?month=" + new Date().toISOString().slice(0, 7);
     else {
       const month = document.getElementById("pick-month").value;
       if (!month) {
@@ -580,49 +603,69 @@
     try {
       const res = await apiFetch(url);
       const data = await res.json();
-      if (data.count === 0) {
-        document.getElementById("all-summary").innerHTML = "";
-        document.getElementById("all-list").innerHTML = `<div class="empty">此區間沒有記錄</div>`;
-        return;
-      }
-
-      const personRows = Object.entries(data.approved_person_totals || {})
-        .sort((a, b) => b[1] - a[1])
-        .map(([name, min]) => `<div class="person-row"><span>${name}</span><span style="font-weight:600;color:#4A148C">${formatMinutes(min)}</span></div>`)
-        .join("");
-
-      if ((data.approved_count || 0) === 0) {
-        document.getElementById("all-summary").innerHTML = `
-          <div class="summary-card">
-            <div class="total-row"><span class="total-label">已核准 0 筆</span><span class="total-val">0小時</span></div>
-          </div>
-        `;
-      } else {
-        document.getElementById("all-summary").innerHTML = `
-          <div class="summary-card">
-            <div class="total-row"><span class="total-label">已核准 ${data.approved_count} 筆</span><span class="total-val">${formatMinutes(data.approved_total_minutes || 0)}</span></div>
-            ${personRows}
-          </div>
-        `;
-      }
-
-      document.getElementById("all-list").innerHTML = data.records.map((record) => `
-        <div class="record-item">
-          <div class="record-left">
-            <div class="name">${record.applicant_name}</div>
-            <div class="detail">${record.work_date}　${shiftLabel(record)}</div>
-          </div>
-          <div class="record-right">
-            <div class="mins">${formatMinutes(record.overtime_minutes)}</div>
-            <div class="status">${statusBadge(record.status)}</div>
-          </div>
-        </div>
-      `).join("");
+      allRecordsCache = data.records || [];
+      updateNameSuggestions(allRecordsCache);
+      applyFilters();
     } catch {
       document.getElementById("all-list").innerHTML = `<div class="empty">查詢失敗</div>`;
     } finally {
       loading(false);
     }
+  }
+
+  function updateNameSuggestions(records) {
+    const names = [...new Set(records.map(r => r.name))].sort();
+    document.getElementById("name-suggestions").innerHTML =
+      names.map(n => `<option value="${n}">`).join("");
+  }
+
+  function applyFilters() {
+    const shift = document.getElementById("filter-shift").value;
+    const name = document.getElementById("filter-name").value.trim();
+    let filtered = allRecordsCache;
+    if (shift) {
+      filtered = filtered.filter(r =>
+        shift === "其他" ? r.shift_type.startsWith("其他") : r.shift_type === shift
+      );
+    }
+    if (name) {
+      filtered = filtered.filter(r => r.name.includes(name));
+    }
+    const person_totals = {};
+    for (const r of filtered) {
+      person_totals[r.name] = (person_totals[r.name] || 0) + r.overtime_minutes;
+    }
+    const total_minutes = filtered.reduce((s, r) => s + r.overtime_minutes, 0);
+
+    if (!filtered.length) {
+      document.getElementById("all-summary").innerHTML = "";
+      document.getElementById("all-list").innerHTML = `<div class="empty">此區間沒有記錄</div>`;
+      return;
+    }
+
+    const personRows = Object.entries(person_totals)
+      .sort((a, b) => b[1] - a[1])
+      .map(([n, min]) => `<div class="person-row"><span>${n}</span><span style="font-weight:600;color:#4A148C">${formatMinutes(min)}</span></div>`)
+      .join("");
+
+    document.getElementById("all-summary").innerHTML = `
+      <div class="summary-card">
+        <div class="total-row"><span class="total-label">共 ${filtered.length} 筆</span><span class="total-val">${formatMinutes(total_minutes)}</span></div>
+        ${personRows}
+      </div>
+    `;
+
+    document.getElementById("all-list").innerHTML = filtered.map((record) => `
+      <div class="record-item">
+        <div class="record-left">
+          <div class="name">${record.name}</div>
+          <div class="detail">${record.work_date}　${record.shift_type}</div>
+        </div>
+        <div class="record-right">
+          <div class="mins">${formatMinutes(record.overtime_minutes)}</div>
+        </div>
+      </div>
+    `).join("");
   }
 
   function changeYear(delta) {
@@ -634,7 +677,7 @@
     document.getElementById("year-label").textContent = `${currentYear} 年`;
     loading(true);
     try {
-      const res = await apiFetch(`/api/records/monthly-summary?year=${currentYear}`);
+      const res = await apiFetch(`/api/history/monthly-summary?year=${currentYear}`);
       const data = await res.json();
       const maxMin = Math.max(...data.months.map((month) => month.total_minutes), 1);
 
