@@ -271,14 +271,19 @@ def get_record_by_id(record_id):
     return None
 
 
-def update_record_status(record_id, status):
+def update_record_status(record_id, status, reviewer_id=None, reviewed_at=None):
+    """更新記錄狀態。若提供 reviewer_id，一併寫入審核者資訊。"""
     raw_id = str(record_id).strip()
     url = f"{SUPABASE_URL}/rest/v1/overtime_records"
+    payload = {"status": status}
+    if reviewer_id is not None:
+        payload["reviewed_by_id"] = reviewer_id
+        payload["reviewed_at"] = reviewed_at or datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     response = requests.patch(
         url,
         headers=headers,
         params={"id": f"eq.{raw_id}"},
-        json={"status": status},
+        json=payload,
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     print("Update record status:", raw_id, response.status_code, response.text)
@@ -914,7 +919,7 @@ async def api_review(record_id: str, request: Request):
         raise HTTPException(status_code=400, detail=f"Record status is already: {rec['status']}")
 
     new_status = "已核准" if action == "approve" else "已拒絕"
-    resp = update_record_status(record_id, new_status)
+    resp = update_record_status(record_id, new_status, reviewer_id=user["id"])
     if resp.status_code not in (200, 204):
         detail = resp.text.strip() or "Failed to update status"
         raise HTTPException(
@@ -927,7 +932,10 @@ async def api_review(record_id: str, request: Request):
     # 同步至 overtime_history（失敗不 rollback 審核結果）
     if new_status == "已核准":
         try:
-            insert_history_record(rec, applicant["name"] if applicant else str(rec["user_id"]))
+            insert_history_record(
+                rec,
+                applicant["name"] if applicant else str(rec["user_id"]),
+            )
         except Exception as exc:
             print("History sync failed:", exc)
 
@@ -935,6 +943,7 @@ async def api_review(record_id: str, request: Request):
     if applicant and applicant.get("line_user_id"):
         shift_display = format_shift_display(rec["shift_type"], rec.get("other_shift_text"))
         icon = "✅" if new_status == "已核准" else "❌"
+        reviewer_name = user.get("name") or "主管"
         try:
             push_message(
                 applicant["line_user_id"],
@@ -944,6 +953,7 @@ async def api_review(record_id: str, request: Request):
                     shift_display,
                     rec["overtime_minutes"],
                     record_id,
+                    extra_lines=[f"審核者：{reviewer_name}"],
                 ),
             )
         except Exception as exc:
@@ -1420,7 +1430,7 @@ async def webhook(request: Request, x_line_signature: str = Header(None)):
                 )
                 continue
 
-            response = update_record_status(record_id, new_status)
+            response = update_record_status(record_id, new_status, reviewer_id=user["id"])
             if response.status_code not in (200, 204):
                 reply_message(reply_token, "審核失敗，請稍後再試")
                 continue
@@ -1431,13 +1441,17 @@ async def webhook(request: Request, x_line_signature: str = Header(None)):
             # 同步至 overtime_history
             if new_status == "已核准":
                 try:
-                    insert_history_record(rec, applicant["name"] if applicant else str(rec["user_id"]))
+                    insert_history_record(
+                        rec,
+                        applicant["name"] if applicant else str(rec["user_id"]),
+                    )
                 except Exception as exc:
                     print("History sync failed:", exc)
 
             if applicant and applicant.get("line_user_id"):
                 shift_display = format_shift_display(rec["shift_type"], rec.get("other_shift_text"))
                 icon = "✅" if new_status == "已核准" else "❌"
+                reviewer_name = user.get("name") or "主管"
                 push_message(
                     applicant["line_user_id"],
                     build_overtime_message(
@@ -1446,6 +1460,7 @@ async def webhook(request: Request, x_line_signature: str = Header(None)):
                         shift_display,
                         rec["overtime_minutes"],
                         record_id,
+                        extra_lines=[f"審核者：{reviewer_name}"],
                     ),
                 )
 
