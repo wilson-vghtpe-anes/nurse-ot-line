@@ -334,7 +334,8 @@
     <select id="review-filter-reviewer" onchange="loadReviewLog()">
       <option value="">全部審核者</option>
     </select>
-    <input type="text" id="review-filter-name" placeholder="搜尋申請人…" oninput="applyReviewFilters()">
+    <input type="text" id="review-filter-name" placeholder="搜尋申請人…" list="review-name-suggestions" oninput="applyReviewFilters()">
+    <datalist id="review-name-suggestions"></datalist>
   </div>
   <div id="review-log-summary"></div>
   <div class="card" style="padding:8px 16px">
@@ -870,6 +871,12 @@
     const summary = document.getElementById("review-log-summary");
     const nameFilter = document.getElementById("review-filter-name").value.trim();
     let records = _allReviewRecords;
+
+    // 更新搜尋建議（從完整資料取，不受目前篩選影響）
+    const allNames = [...new Set(_allReviewRecords.map(r => r.applicant_name))].sort();
+    document.getElementById("review-name-suggestions").innerHTML =
+      allNames.map(n => `<option value="${n}">`).join("");
+
     if (nameFilter) records = records.filter(r => r.applicant_name.includes(nameFilter));
 
     const approved = records.filter(r => r.status === "已核准");
@@ -882,7 +889,7 @@
     list.innerHTML = records.map(r => {
       const icon = r.status === "已核准" ? "✅" : "❌";
       const reviewedAt = r.reviewed_at
-        ? new Date(r.reviewed_at).toLocaleString("zh-TW", {month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})
+        ? new Date(r.reviewed_at).toLocaleString("zh-TW", {timeZone:"Asia/Taipei",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})
         : "—";
       const mins = r.overtime_minutes;
       const absMin = Math.abs(mins);
