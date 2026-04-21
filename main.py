@@ -962,6 +962,78 @@ async def api_review(record_id: str, request: Request):
     return {"ok": True, "new_status": new_status}
 
 
+# ── 審核紀錄 API ──────────────────────────────────────────────────────────────
+
+@app.get("/api/records/review-log")
+def api_review_log(
+    request: Request,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    reviewer_id: Optional[str] = None,
+    applicant_name: Optional[str] = None,
+):
+    """審核紀錄查詢（manager / admin）。
+    - manager：只能查自己審核的記錄（reviewer_id 固定為自己）。
+    - admin：可查所有人的審核記錄，也可用 reviewer_id 篩選特定審核者。
+    """
+    user = require_manager(get_current_user(request))
+    is_admin = user["role"] == "admin"
+
+    filters = ["status=in.(已核准,已拒絕)", "reviewed_by_id=not.is.null"]
+
+    # manager 只能看自己審的
+    effective_reviewer_id = reviewer_id if is_admin else str(user["id"])
+    if effective_reviewer_id:
+        filters.append(f"reviewed_by_id=eq.{effective_reviewer_id}")
+
+    if start:
+        filters.append(f"reviewed_at=gte.{start}T00:00:00Z")
+    if end:
+        filters.append(f"reviewed_at=lte.{end}T23:59:59Z")
+
+    url = (
+        f"{SUPABASE_URL}/rest/v1/overtime_records"
+        f"?{'&'.join(filters)}&order=reviewed_at.desc&limit=500&select=*"
+    )
+    resp = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+    if resp.status_code != 200:
+        raise HTTPException(status_code=500, detail="Query failed")
+
+    records = resp.json()
+
+    # 補上申請人姓名與審核者姓名
+    user_cache = {}
+    def resolve_name(uid):
+        if uid not in user_cache:
+            u = get_user_by_id(uid)
+            user_cache[uid] = u["name"] if u else "未知"
+        return user_cache[uid]
+
+    for rec in records:
+        rec["applicant_name"] = resolve_name(rec["user_id"])
+        rec["reviewer_name"] = resolve_name(rec["reviewed_by_id"]) if rec.get("reviewed_by_id") else ""
+
+    # 前端姓名篩選（applicant_name）
+    if applicant_name:
+        records = [r for r in records if applicant_name in r["applicant_name"]]
+
+    # 若 admin 查全部，額外回傳可用的審核者清單供下拉篩選
+    reviewers = []
+    if is_admin:
+        seen = {}
+        for rec in records:
+            rid = rec.get("reviewed_by_id")
+            if rid and rid not in seen:
+                seen[rid] = rec["reviewer_name"]
+        reviewers = [{"id": k, "name": v} for k, v in seen.items()]
+
+    return {
+        "records": records,
+        "count": len(records),
+        "reviewers": reviewers,
+    }
+
+
 # ── Admin API ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/members")
