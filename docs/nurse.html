@@ -249,7 +249,7 @@
 
 <div class="tabs">
   <div class="tab active" id="tab-submit">📋 申報加班</div>
-  <div class="tab" id="tab-records">🔍 我的記錄</div>
+  <div class="tab" id="tab-records">🔍 我的申請紀錄</div>
   <div class="tab" id="tab-history">📊 歷史加班</div>
 </div>
 
@@ -325,7 +325,8 @@
   </div>
   <div class="summary-bar" id="summary-bar" style="display:none">
     <span>共 <strong id="rec-count">0</strong> 筆</span>
-    <span>合計 <strong id="rec-total">—</strong></span>
+    <span>✅ 通過 <strong id="rec-total-approved">—</strong></span>
+    <span>⏳ 待審 <strong id="rec-total-pending">—</strong></span>
   </div>
   <div class="card" style="padding:8px 16px">
     <div id="records-list"><div class="empty">載入中…</div></div>
@@ -570,7 +571,16 @@
   function renderRecords(records, totalMin, count) {
     const summaryBar = document.getElementById("summary-bar");
     document.getElementById("rec-count").textContent = count;
-    document.getElementById("rec-total").textContent = formatMinutes(totalMin);
+
+    const approvedMin = (records || [])
+      .filter(r => r.status === "已核准")
+      .reduce((s, r) => s + r.overtime_minutes, 0);
+    const pendingMin = (records || [])
+      .filter(r => r.status === "審核中")
+      .reduce((s, r) => s + r.overtime_minutes, 0);
+
+    document.getElementById("rec-total-approved").textContent = formatMinutes(approvedMin);
+    document.getElementById("rec-total-pending").textContent = formatMinutes(pendingMin);
     summaryBar.style.display = count > 0 ? "flex" : "none";
 
     if (!records || records.length === 0) {
