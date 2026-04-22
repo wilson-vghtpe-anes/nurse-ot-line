@@ -603,7 +603,7 @@
     `).join("");
 
     document.querySelectorAll(".btn-cancel[data-id]").forEach(btn => {
-      btn.addEventListener("click", () => cancelRecord(parseInt(btn.dataset.id)));
+      btn.addEventListener("click", () => cancelRecord(btn.dataset.id));
     });
   }
 

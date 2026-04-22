@@ -797,7 +797,7 @@ async def api_overtime_submit(request: Request, body: OvertimeSubmit):
 
 
 @app.post("/api/overtime/{record_id}/cancel")
-def api_overtime_cancel(record_id: int, request: Request):
+def api_overtime_cancel(record_id: str, request: Request):
     """取消自己的加班申請。"""
     user = get_current_user(request)
     rec = get_record_by_id(record_id)
@@ -1446,11 +1446,11 @@ async def webhook(request: Request, x_line_signature: str = Header(None)):
         # 格式：取消 123
         if text.startswith("取消"):
             parts = text.split()
-            if len(parts) != 2 or not parts[1].isdigit():
+            if len(parts) != 2:
                 reply_message(reply_token, "請輸入：取消 申請編號\n例如：取消 123")
                 continue
 
-            record_id = int(parts[1])
+            record_id = parts[1]
             rec = get_record_by_id(record_id)
 
             if not rec:
@@ -1481,7 +1481,7 @@ async def webhook(request: Request, x_line_signature: str = Header(None)):
                 continue
 
             parts = text.split()
-            if len(parts) != 2 or not parts[1].isdigit():
+            if len(parts) != 2:
                 reply_message(
                     reply_token,
                     "請輸入：核准 申請編號\n或：拒絕 申請編號\n例如：核准 123",
@@ -1489,7 +1489,7 @@ async def webhook(request: Request, x_line_signature: str = Header(None)):
                 continue
 
             action = parts[0]  # 核准 / 拒絕
-            record_id = int(parts[1])
+            record_id = parts[1]
             new_status = "已核准" if action == "核准" else "已拒絕"
 
             rec = get_record_by_id(record_id)
