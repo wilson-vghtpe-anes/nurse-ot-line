@@ -801,15 +801,16 @@ def api_overtime_cancel(record_id: int, request: Request):
     """取消自己的加班申請。"""
     user = get_current_user(request)
     rec = get_record_by_id(record_id)
+    print(f"Cancel attempt: record_id={record_id}, user_id={user['id']}, rec_user_id={rec['user_id'] if rec else None}, rec_status={rec['status'] if rec else None}")
     if not rec:
         raise HTTPException(status_code=404, detail="Record not found")
     if str(rec["user_id"]) != str(user["id"]):
-        raise HTTPException(status_code=403, detail="Cannot cancel other's record")
+        raise HTTPException(status_code=403, detail=f"Cannot cancel other's record (rec.user_id={rec['user_id']}, user.id={user['id']})")
     if rec["status"] != "審核中":
         raise HTTPException(status_code=400, detail=f"Cannot cancel record with status: {rec['status']}")
     resp = update_record_status(record_id, "已取消")
     if resp.status_code not in (200, 204):
-        raise HTTPException(status_code=500, detail="Failed to cancel")
+        raise HTTPException(status_code=500, detail=f"Supabase error: {resp.status_code} {resp.text}")
     return {"ok": True}
 
 

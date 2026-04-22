@@ -613,7 +613,10 @@
     loading(true);
     try {
       const res = await apiFetch(`/api/overtime/${id}/cancel`, { method: "POST" });
-      if (!res.ok) throw new Error("取消失敗");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `取消失敗 (${res.status})`);
+      }
       showToast("已取消申請");
       loadRecords();
     } catch (e) {
