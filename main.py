@@ -803,7 +803,7 @@ def api_overtime_cancel(record_id: int, request: Request):
     rec = get_record_by_id(record_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Record not found")
-    if rec["user_id"] != user["id"]:
+    if str(rec["user_id"]) != str(user["id"]):
         raise HTTPException(status_code=403, detail="Cannot cancel other's record")
     if rec["status"] != "審核中":
         raise HTTPException(status_code=400, detail=f"Cannot cancel record with status: {rec['status']}")
@@ -1455,7 +1455,7 @@ async def webhook(request: Request, x_line_signature: str = Header(None)):
             if not rec:
                 reply_message(reply_token, f"找不到申請 #{record_id}")
                 continue
-            if rec["user_id"] != user["id"]:
+            if str(rec["user_id"]) != str(user["id"]):
                 reply_message(reply_token, "只能取消自己的申請")
                 continue
             if rec["status"] != "審核中":
