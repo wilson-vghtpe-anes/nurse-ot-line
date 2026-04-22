@@ -515,7 +515,7 @@
       }
       showToast(isLeaveEarly ? "已送出早走申請，等待審核" : "已送出申請，等待審核");
       // 重置表單
-      document.getElementById("work-date").value = "";
+      document.getElementById("work-date").valueAsDate = new Date();
       document.getElementById("shift-type").value = "";
       document.getElementById("other-shift-text").value = "";
       document.getElementById("other-shift-group").style.display = "none";

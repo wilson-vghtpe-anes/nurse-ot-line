@@ -457,7 +457,7 @@
         throw new Error(await getErrorMessage(res, "送出申請失敗"));
       }
       showToast(isLeaveEarly ? "已送出早走申請，等待審核" : "已送出加班申請");
-      document.getElementById("work-date").value = "";
+      document.getElementById("work-date").valueAsDate = new Date();
       document.getElementById("shift-type").value = "";
       document.getElementById("other-shift-text").value = "";
       document.getElementById("other-shift-group").style.display = "none";
