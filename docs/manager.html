@@ -274,6 +274,13 @@
 <div class="panel active" id="panel-pending">
   <div class="card">
     <div class="card-title" id="pending-title">待審核申請</div>
+    <div class="filter-row" id="pending-filter-row">
+      <div class="filter-chip active" onclick="setPendingFilter('全部', this)">全部</div>
+      <div class="filter-chip" onclick="setPendingFilter('中正', this)">中正</div>
+      <div class="filter-chip" onclick="setPendingFilter('思源', this)">思源</div>
+      <div class="filter-chip" onclick="setPendingFilter('八樓', this)">八樓</div>
+      <div class="filter-chip" onclick="setPendingFilter('翼樓', this)">翼樓</div>
+    </div>
     <div id="pending-list"><div class="empty">載入中</div></div>
   </div>
 </div>
@@ -508,6 +515,40 @@
   let allFilter = "week";
   let allRecordsCache = [];
   let currentYear = new Date().getFullYear();
+  let pendingAreaFilter = "全部";
+  let pendingRecords = [];
+  const AREA_ORDER = ["中正", "思源", "八樓", "翼樓"];
+
+  function setPendingFilter(area, el) {
+    pendingAreaFilter = area;
+    document.querySelectorAll("#pending-filter-row .filter-chip").forEach(c => c.classList.remove("active"));
+    el.classList.add("active");
+    renderPending();
+  }
+
+  function renderPending() {
+    const list = pendingAreaFilter === "全部"
+      ? pendingRecords
+      : pendingRecords.filter(r => r.work_area === pendingAreaFilter);
+    if (list.length === 0) {
+      document.getElementById("pending-list").innerHTML = `<div class="empty">沒有符合的待審核申請</div>`;
+      return;
+    }
+    document.getElementById("pending-list").innerHTML = list.map((record) => `
+      <div class="pending-item" id="item-${record.id}">
+        <div class="pending-header">
+          <span class="pending-name">${record.applicant_name}</span>
+          <span class="pending-mins">${formatMinutes(record.overtime_minutes)}</span>
+        </div>
+        <div class="pending-detail">${record.work_date}　${shiftLabel(record)}${record.work_area ? `　<span style="background:#E3F2FD;color:#1565C0;padding:1px 8px;border-radius:10px;font-size:12px">${record.work_area}</span>` : ""}</div>
+        <div class="review-btns">
+          <button type="button" class="btn-approve" data-review-action="approve" data-record-id="${record.id}">核准</button>
+          <button type="button" class="btn-reject" data-review-action="reject" data-record-id="${record.id}">拒絕</button>
+        </div>
+      </div>
+    `).join("");
+    bindPendingActions();
+  }
 
   async function loadPending() {
     loading(true);
@@ -519,24 +560,17 @@
         `待審核申請 ${count > 0 ? `<span class="badge-pending">${count}</span>` : ""}`;
 
       if (count === 0) {
+        pendingRecords = [];
         document.getElementById("pending-list").innerHTML = `<div class="empty">目前沒有待審核申請 🎉</div>`;
         return;
       }
 
-      document.getElementById("pending-list").innerHTML = data.records.map((record) => `
-        <div class="pending-item" id="item-${record.id}">
-          <div class="pending-header">
-            <span class="pending-name">${record.applicant_name}</span>
-            <span class="pending-mins">${formatMinutes(record.overtime_minutes)}</span>
-          </div>
-          <div class="pending-detail">${record.work_date}　${shiftLabel(record)}</div>
-          <div class="review-btns">
-            <button type="button" class="btn-approve" data-review-action="approve" data-record-id="${record.id}">核准</button>
-            <button type="button" class="btn-reject" data-review-action="reject" data-record-id="${record.id}">拒絕</button>
-          </div>
-        </div>
-      `).join("");
-      bindPendingActions();
+      pendingRecords = [...data.records].sort((a, b) => {
+        const ai = AREA_ORDER.indexOf(a.work_area);
+        const bi = AREA_ORDER.indexOf(b.work_area);
+        return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+      });
+      renderPending();
     } catch {
       document.getElementById("pending-list").innerHTML = `<div class="empty">載入失敗</div>`;
     } finally {
@@ -563,6 +597,7 @@
         throw new Error(await getErrorMessage(res, "操作失敗"));
       }
       showToast(`已${label}`);
+      pendingRecords = pendingRecords.filter(r => String(r.id) !== String(id));
       document.getElementById(`item-${id}`)?.remove();
 
       const remaining = document.querySelectorAll(".pending-item").length;
