@@ -182,7 +182,7 @@ def get_reviewers():
     return response.json()
 
 
-def insert_overtime_record(user_id, work_date, shift_type, other_shift_text, overtime_minutes, record_type="overtime"):
+def insert_overtime_record(user_id, work_date, shift_type, other_shift_text, overtime_minutes, record_type="overtime", work_area=None):
     url = f"{SUPABASE_URL}/rest/v1/overtime_records"
     data = {
         "user_id": user_id,
@@ -192,6 +192,7 @@ def insert_overtime_record(user_id, work_date, shift_type, other_shift_text, ove
         "overtime_minutes": overtime_minutes,
         "record_type": record_type,
         "status": "審核中",
+        "work_area": work_area,
     }
     response = requests.post(
         url, headers=headers, json=data, timeout=REQUEST_TIMEOUT_SECONDS
@@ -529,6 +530,7 @@ class OvertimeSubmit(BaseModel):
     other_shift_text: Optional[str] = None
     overtime_minutes: int
     record_type: str = "overtime"  # "overtime" | "leave_early"
+    work_area: Optional[str] = None  # "中正" | "思源" | "八樓" | "翼樓"
 
 class RoleUpdate(BaseModel):
     target_name: str
@@ -767,6 +769,8 @@ async def api_overtime_submit(request: Request, body: OvertimeSubmit):
         raise HTTPException(status_code=400, detail="other_shift_text required for 其他")
     if body.record_type not in ("overtime", "leave_early"):
         raise HTTPException(status_code=400, detail="record_type must be overtime or leave_early")
+    if body.work_area and body.work_area not in ("中正", "思源", "八樓", "翼樓"):
+        raise HTTPException(status_code=400, detail="Invalid work_area")
     if body.overtime_minutes == 0:
         raise HTTPException(status_code=400, detail="overtime_minutes cannot be zero")
     if body.record_type == "overtime" and body.overtime_minutes < 0:
@@ -785,6 +789,7 @@ async def api_overtime_submit(request: Request, body: OvertimeSubmit):
         other_shift_text=body.other_shift_text,
         overtime_minutes=final_minutes,
         record_type=body.record_type,
+        work_area=body.work_area,
     )
     if resp.status_code not in (200, 201):
         raise HTTPException(status_code=500, detail="Failed to submit overtime")

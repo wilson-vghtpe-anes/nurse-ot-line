@@ -238,6 +238,18 @@
     .drum-wrapper.leave-early-mode::before,
     .drum-wrapper.leave-early-mode::after { background: #e53935; }
     .duration-display.leave-early-mode { color: #e53935 !important; }
+    /* ── 白班工作區域 ── */
+    .area-group { display: flex; gap: 8px; flex-wrap: wrap; }
+    .area-option {
+      display: flex; align-items: center;
+      padding: 9px 16px; border: 1.5px solid #e0e0e0; border-radius: 20px;
+      cursor: pointer; font-size: 14px; color: #555; transition: all 0.15s;
+      background: #fff; user-select: none;
+    }
+    .area-option input { display: none; }
+    .area-option:has(input:checked) {
+      border-color: #06C755; background: #E8F5E9; color: #1B5E20; font-weight: 600;
+    }
   </style>
 </head>
 <body>
@@ -280,6 +292,16 @@
     <div class="form-group" id="other-shift-group" style="display:none">
       <label class="form-label">班別說明</label>
       <input type="text" class="form-control" id="other-shift-text" placeholder="例如：急診支援">
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">白班工作區域</label>
+      <div class="area-group">
+        <label class="area-option"><input type="radio" name="work-area" value="中正"><span>中正</span></label>
+        <label class="area-option"><input type="radio" name="work-area" value="思源"><span>思源</span></label>
+        <label class="area-option"><input type="radio" name="work-area" value="八樓"><span>八樓</span></label>
+        <label class="area-option"><input type="radio" name="work-area" value="翼樓"><span>翼樓</span></label>
+      </div>
     </div>
 
     <div class="form-group">
@@ -487,11 +509,13 @@
     const shiftType = document.getElementById("shift-type").value;
     const otherText = document.getElementById("other-shift-text").value.trim();
     const isLeaveEarly = document.getElementById("leave-early-check").checked;
+    const workArea = document.querySelector('input[name="work-area"]:checked')?.value || null;
     const totalMins = getSelectedMinutes();
 
     if (!workDate)  { showToast("請選擇加班日期", false); return; }
     if (!shiftType) { showToast("請選擇班別", false); return; }
     if (shiftType === "其他" && !otherText) { showToast("請輸入班別說明", false); return; }
+    if (!workArea)  { showToast("請選擇白班工作區域", false); return; }
     if (totalMins <= 0) { showToast("請選擇時數", false); return; }
     if (!getLineUserId()) { showToast("尚未登入，請重新開啟", false); return; }
 
@@ -508,6 +532,7 @@
           other_shift_text: otherText || null,
           overtime_minutes: totalMins,
           record_type: isLeaveEarly ? "leave_early" : "overtime",
+          work_area: workArea,
         }),
       });
       if (!res.ok) {
@@ -521,6 +546,7 @@
       document.getElementById("other-shift-text").value = "";
       document.getElementById("other-shift-group").style.display = "none";
       document.getElementById("leave-early-check").checked = false;
+      document.querySelectorAll('input[name="work-area"]').forEach(r => r.checked = false);
       onLeaveEarlyChange();
       // 重置滾輪至 0:00
       hourCol.scrollTo({ top: 0, behavior: "smooth" });
