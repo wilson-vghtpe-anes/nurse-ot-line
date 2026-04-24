@@ -1,5 +1,5 @@
 """
-一次性匯入腳本：將 overtime_detail_202401_202603.xlsx 上傳至 Supabase overtime_history 表。
+匯入腳本：將 Excel 上傳至 Supabase overtime_history 表（支援重複執行覆蓋）。
 
 執行前請確認：
 1. 專案根目錄已建立 .env（或在此腳本同層目錄有 .env）
@@ -8,6 +8,11 @@
 
 執行：
   python import_history_to_supabase.py
+
+覆蓋邏輯：
+  先刪除 overtime_history 中 source_record_id IS NULL（歷史匯入）且
+  work_date 落在 Excel 日期範圍內的所有記錄，再重新插入。
+  系統核准記錄（source_record_id 有值）不受影響。
 """
 
 import os
@@ -61,7 +66,27 @@ df.columns = ["work_date", "name", "actual_work_time", "overtime_period",
               "overtime_minutes", "shift_type"]
 df.dropna(subset=["work_date", "name", "overtime_minutes", "shift_type"], inplace=True)
 df["overtime_minutes"] = df["overtime_minutes"].astype(int)
+df["work_date"] = pd.to_datetime(df["work_date"]).dt.strftime("%Y-%m-%d")
 print(f"  共 {len(df)} 筆記錄")
+
+date_min = df["work_date"].min()
+date_max = df["work_date"].max()
+print(f"  日期範圍：{date_min} ～ {date_max}")
+
+# ── 刪除舊的歷史匯入記錄（同日期範圍、source_record_id IS NULL）────────────────
+
+print(f"\n刪除舊歷史匯入（{date_min} ～ {date_max}，source_record_id IS NULL）...")
+del_url = (
+    f"{SUPABASE_URL}/rest/v1/overtime_history"
+    f"?source_record_id=is.null"
+    f"&work_date=gte.{date_min}"
+    f"&work_date=lte.{date_max}"
+)
+del_resp = requests.delete(del_url, headers=HEADERS, timeout=30)
+if del_resp.status_code in (200, 204):
+    print("  刪除完成")
+else:
+    sys.exit(f"[錯誤] 刪除失敗：{del_resp.status_code} {del_resp.text}")
 
 # ── 組成 records ──────────────────────────────────────────────────────────────
 
@@ -73,7 +98,7 @@ for _, row in df.iterrows():
     if user_id is None:
         unmatched_names.add(name)
     records.append({
-        "work_date": str(row["work_date"]),
+        "work_date": row["work_date"],
         "user_id": user_id,          # null if not found
         "name": name,
         "shift_type": str(row["shift_type"]),
