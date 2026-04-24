@@ -320,6 +320,13 @@
       <option value="11-7">11-7</option>
       <option value="其他">其他</option>
     </select>
+    <select id="filter-area" onchange="applyFilters()">
+      <option value="">全部區域</option>
+      <option value="中正">中正</option>
+      <option value="思源">思源</option>
+      <option value="八樓">八樓</option>
+      <option value="翼樓">翼樓</option>
+    </select>
     <input type="text" id="filter-name" placeholder="搜尋姓名…" list="name-suggestions" oninput="applyFilters()">
     <datalist id="name-suggestions"></datalist>
   </div>
@@ -714,19 +721,26 @@
   function applyFilters() {
     const shift = document.getElementById("filter-shift").value;
     const name = document.getElementById("filter-name").value.trim();
+    const area = document.getElementById("filter-area").value;
     let filtered = allRecordsCache;
     if (shift) {
       filtered = filtered.filter(r =>
         shift === "其他" ? r.shift_type.startsWith("其他") : r.shift_type === shift
       );
     }
-    if (name) {
-      filtered = filtered.filter(r => r.name.includes(name));
-    }
-    const person_totals = {};
+    if (name) filtered = filtered.filter(r => r.name.includes(name));
+    if (area) filtered = filtered.filter(r => r.work_area === area);
+
+    const personData = {};
     for (const r of filtered) {
-      person_totals[r.name] = (person_totals[r.name] || 0) + r.overtime_minutes;
+      if (!personData[r.name]) personData[r.name] = { minutes: 0, work_area: r.work_area };
+      personData[r.name].minutes += r.overtime_minutes;
     }
+    const sortedPersons = Object.entries(personData).sort((a, b) => {
+      const ai = AREA_ORDER.indexOf(a[1].work_area);
+      const bi = AREA_ORDER.indexOf(b[1].work_area);
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    });
     const total_minutes = filtered.reduce((s, r) => s + r.overtime_minutes, 0);
 
     if (!filtered.length) {
@@ -735,9 +749,8 @@
       return;
     }
 
-    const personRows = Object.entries(person_totals)
-      .sort((a, b) => b[1] - a[1])
-      .map(([n, min]) => `<div class="person-row"><span>${n}</span><span style="font-weight:600;color:#4A148C">${formatMinutes(min)}</span></div>`)
+    const personRows = sortedPersons
+      .map(([n, { minutes, work_area }]) => `<div class="person-row"><span>${n}${work_area ? `<span style="margin-left:6px;background:#F3E5F5;color:#4A148C;padding:1px 7px;border-radius:10px;font-size:11px">${work_area}</span>` : ""}</span><span style="font-weight:600;color:#4A148C">${formatMinutes(minutes)}</span></div>`)
       .join("");
 
     document.getElementById("all-summary").innerHTML = `
@@ -750,7 +763,7 @@
     document.getElementById("all-list").innerHTML = filtered.map((record) => `
       <div class="record-item">
         <div class="record-left">
-          <div class="name">${record.name}</div>
+          <div class="name">${record.name}${record.work_area ? `<span style="margin-left:6px;background:#F3E5F5;color:#4A148C;padding:1px 7px;border-radius:10px;font-size:11px">${record.work_area}</span>` : ""}</div>
           <div class="detail">${record.work_date}　${record.shift_type}</div>
         </div>
         <div class="record-right">
