@@ -1,16 +1,12 @@
-import io
 import os
 import re
 import calendar
 import requests
-import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment
 from pathlib import Path
 from datetime import datetime, timedelta
-from urllib.parse import quote as url_quote
 from fastapi import FastAPI, Request, Header, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Optional
@@ -350,121 +346,6 @@ def format_minutes(total_minutes):
 
 def is_approved_record(rec):
     return rec.get("status") == "已核准"
-
-
-# ── Excel 匯出工具 ────────────────────────────────────────────────────────────
-
-_SHIFT_START_MIN = {
-    "7-3": 7*60, "9-5": 9*60, "10-6": 10*60,
-    "12-8": 12*60, "3-11": 15*60, "11-7": 23*60,
-}
-_SHIFT_END_MIN = {
-    "7-3": 15*60, "9-5": 17*60, "10-6": 18*60,
-    "12-8": 20*60, "3-11": 23*60, "11-7": 31*60,  # 11-7 ends at 07:00 next day = 31h
-}
-
-
-def _min_to_shift_hour(total_minutes: int) -> int:
-    """Convert total minutes to 12-hour compact notation (e.g. 18*60 → 6, 23*60 → 11)."""
-    h = (total_minutes // 60) % 24
-    return (h % 12) or 12
-
-
-def _actual_shift_range(shift_type: str, overtime_minutes: int) -> str:
-    """Return display like '7-6' (start-end in compact notation after overtime)."""
-    if shift_type not in _SHIFT_END_MIN:
-        return shift_type
-    start_h = _min_to_shift_hour(_SHIFT_START_MIN[shift_type])
-    end_h = _min_to_shift_hour(_SHIFT_END_MIN[shift_type] + overtime_minutes)
-    return f"{start_h}-{end_h}"
-
-
-def _build_overtime_excel(records: list, dates: list, nurse_names: list) -> io.BytesIO:
-    data: dict = {n: {d: [] for d in dates} for n in nurse_names}
-    for r in records:
-        name = r.get("name", "未知")
-        date = r["work_date"]
-        if name in data and date in data[name]:
-            data[name][date].append(r)
-
-    wb = openpyxl.Workbook()
-
-    HDR_FILL = PatternFill("solid", fgColor="1565C0")
-    HDR_FONT = Font(bold=True, color="FFFFFF")
-    CENTER = Alignment(horizontal="center", vertical="center")
-    NAME_FONT = Font(bold=True)
-
-    def make_header_cell(ws, row, col, value):
-        c = ws.cell(row, col, value)
-        c.font = HDR_FONT
-        c.fill = HDR_FILL
-        c.alignment = CENTER
-        return c
-
-    # ── Sheet 1: 每日加班時數 ──────────────────────────────────────────────────
-    ws1 = wb.active
-    ws1.title = "每日加班時數"
-
-    make_header_cell(ws1, 1, 1, "姓名")
-    for ci, d in enumerate(dates, start=2):
-        dt = datetime.strptime(d, "%Y-%m-%d")
-        make_header_cell(ws1, 1, ci, f"{dt.month}/{dt.day}")
-    total_col = len(dates) + 2
-    make_header_cell(ws1, 1, total_col, "合計")
-
-    for ri, name in enumerate(nurse_names, start=2):
-        ws1.cell(ri, 1, name).font = NAME_FONT
-        row_total = 0
-        for ci, d in enumerate(dates, start=2):
-            day_recs = data[name][d]
-            if not day_recs:
-                continue
-            mins = sum(r["overtime_minutes"] for r in day_recs)
-            row_total += mins
-            h, m = divmod(abs(mins), 60)
-            val = f"-{h}:{m:02d}" if mins < 0 else f"{h}:{m:02d}"
-            cell = ws1.cell(ri, ci, val)
-            cell.alignment = CENTER
-            cell.font = Font(color="C62828") if mins < 0 else Font(color="1A6B35")
-        if row_total:
-            h, m = divmod(abs(row_total), 60)
-            val = f"-{h}:{m:02d}" if row_total < 0 else f"{h}:{m:02d}"
-            tc = ws1.cell(ri, total_col, val)
-            tc.font = Font(bold=True, color="C62828" if row_total < 0 else "0D47A1")
-            tc.alignment = CENTER
-
-    ws1.column_dimensions["A"].width = 14
-    for ci in range(2, len(dates) + 3):
-        ws1.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = 8
-
-    # ── Sheet 2: 實際工作時段 ──────────────────────────────────────────────────
-    ws2 = wb.create_sheet("實際工作時段")
-
-    make_header_cell(ws2, 1, 1, "姓名")
-    for ci, d in enumerate(dates, start=2):
-        dt = datetime.strptime(d, "%Y-%m-%d")
-        make_header_cell(ws2, 1, ci, f"{dt.month}/{dt.day}")
-
-    for ri, name in enumerate(nurse_names, start=2):
-        ws2.cell(ri, 1, name).font = NAME_FONT
-        for ci, d in enumerate(dates, start=2):
-            day_recs = data[name][d]
-            if not day_recs:
-                continue
-            shift = day_recs[0]["shift_type"]
-            total_ot = sum(r["overtime_minutes"] for r in day_recs)
-            display = _actual_shift_range(shift, total_ot)
-            cell = ws2.cell(ri, ci, display)
-            cell.alignment = CENTER
-
-    ws2.column_dimensions["A"].width = 14
-    for ci in range(2, len(dates) + 2):
-        ws2.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = 8
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf
 
 
 def format_record_line(rec, show_name=False):
@@ -874,7 +755,7 @@ def api_history_monthly_summary(request: Request, year: Optional[int] = None):
 
 @app.get("/api/export/daily-overtime")
 def api_export_daily_overtime(request: Request, start: str, end: str):
-    """匯出每人每日加班時數 Excel（manager / admin）。"""
+    """匯出加班資料 JSON 供前端生成 Excel（manager / admin）。"""
     require_manager(get_current_user(request))
 
     try:
@@ -903,15 +784,16 @@ def api_export_daily_overtime(request: Request, start: str, end: str):
         cur += timedelta(days=1)
 
     nurse_names = sorted({r["name"] for r in records})
-    buf = _build_overtime_excel(records, dates, nurse_names)
+    overtime: dict = {n: {} for n in nurse_names}
+    shifts: dict = {n: {} for n in nurse_names}
+    for r in records:
+        name = r["name"]
+        date = r["work_date"]
+        overtime[name][date] = overtime[name].get(date, 0) + r["overtime_minutes"]
+        if date not in shifts[name]:
+            shifts[name][date] = r["shift_type"]
 
-    filename = f"加班統計_{start}_{end}.xlsx"
-    encoded_name = url_quote(filename)
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_name}"},
-    )
+    return {"dates": dates, "nurses": nurse_names, "overtime": overtime, "shifts": shifts}
 
 
 @app.post("/api/overtime")
