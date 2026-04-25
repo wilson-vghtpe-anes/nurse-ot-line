@@ -755,8 +755,8 @@ def api_history_monthly_summary(request: Request, year: Optional[int] = None):
 
 @app.get("/api/export/daily-overtime")
 def api_export_daily_overtime(request: Request, start: str, end: str):
-    """匯出加班資料 JSON 供前端生成 Excel（manager / admin）。"""
-    require_manager(get_current_user(request))
+    """匯出加班資料 JSON 供前端生成 Excel（admin only）。"""
+    require_admin(get_current_user(request))
 
     try:
         start_dt = datetime.strptime(start, "%Y-%m-%d")
