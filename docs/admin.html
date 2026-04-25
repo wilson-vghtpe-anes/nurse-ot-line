@@ -371,7 +371,7 @@
       <label class="form-label">結束日期</label>
       <input type="date" class="form-control" id="export-end">
     </div>
-    <button type="button" class="btn-submit" id="export-btn" onclick="exportExcel()">下載 Excel</button>
+    <button type="button" class="btn-submit" id="export-btn" onclick="exportExcel()">傳送到 LINE</button>
   </div>
 </div>
 
@@ -937,7 +937,7 @@
 
     const btn = document.getElementById("export-btn");
     btn.disabled = true;
-    btn.textContent = "產生中...";
+    btn.textContent = "傳送中...";
     loading(true);
     try {
       const res = await apiFetch(`/api/export/daily-overtime?start=${start}&end=${end}`);
@@ -972,13 +972,19 @@
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(s1), "每日加班時數");
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(s2), "實際工作時段");
-      XLSX.writeFile(wb, `加班統計_${start}_${end}.xlsx`);
-      showToast("已下載 Excel");
+      const b64 = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
+
+      const res2 = await apiFetch("/api/export/send-to-line", {
+        method: "POST",
+        body: JSON.stringify({ data: b64, filename: `加班統計_${start}_${end}.xlsx`, start, end }),
+      });
+      if (!res2.ok) throw new Error(await getErrorMessage(res2, "傳送失敗"));
+      showToast("已傳送下載連結到 LINE 聊天室");
     } catch (err) {
       showToast(err.message, false);
     } finally {
       btn.disabled = false;
-      btn.textContent = "下載 Excel";
+      btn.textContent = "傳送到 LINE";
       loading(false);
     }
   }

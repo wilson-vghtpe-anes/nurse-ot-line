@@ -1,12 +1,15 @@
+import base64
 import os
 import re
+import uuid
 import calendar
 import requests
 from pathlib import Path
 from datetime import datetime, timedelta
+from urllib.parse import quote as url_quote
 from fastapi import FastAPI, Request, Header, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Optional
@@ -16,6 +19,8 @@ load_dotenv()
 
 app = FastAPI()
 REQUEST_TIMEOUT_SECONDS = 15
+SERVER_BASE_URL = os.getenv("SERVER_BASE_URL", "https://nurse-ot-line.onrender.com")
+_export_cache: dict = {}  # token -> (file_bytes, filename)
 DOCS_DIR = Path(__file__).resolve().parent / "docs"
 
 app.add_middleware(
@@ -794,6 +799,51 @@ def api_export_daily_overtime(request: Request, start: str, end: str):
             shifts[name][date] = r["shift_type"]
 
     return {"dates": dates, "nurses": nurse_names, "overtime": overtime, "shifts": shifts}
+
+
+class ExportSendBody(BaseModel):
+    data: str   # base64-encoded xlsx
+    filename: str
+    start: str
+    end: str
+
+
+@app.post("/api/export/send-to-line")
+async def api_export_send_to_line(request: Request, body: ExportSendBody):
+    """接收前端產生的 base64 Excel，暫存後推播下載連結到使用者 LINE（admin only）。"""
+    user = require_admin(get_current_user(request))
+
+    try:
+        file_bytes = base64.b64decode(body.data)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 data")
+
+    token = uuid.uuid4().hex
+    _export_cache[token] = (file_bytes, body.filename)
+
+    download_url = f"{SERVER_BASE_URL}/api/export/download/{token}"
+    push_message(
+        user["line_user_id"],
+        f"📊 加班統計 Excel 已準備好\n"
+        f"區間：{body.start} ～ {body.end}\n\n"
+        f"點此下載（限單次使用）：\n{download_url}",
+    )
+    return {"ok": True}
+
+
+@app.get("/api/export/download/{token}")
+def api_export_download(token: str):
+    """憑 token 下載暫存的 Excel 檔案（單次使用）。"""
+    entry = _export_cache.pop(token, None)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="檔案不存在或已被下載過")
+    file_bytes, filename = entry
+    encoded_name = url_quote(filename)
+    return Response(
+        content=file_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_name}"},
+    )
 
 
 @app.post("/api/overtime")
