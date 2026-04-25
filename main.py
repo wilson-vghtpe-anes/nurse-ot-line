@@ -1,9 +1,14 @@
 import base64
+import hashlib
+import hmac
+import io
 import os
 import re
-import uuid
+import time
 import calendar
 import requests
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment
 from pathlib import Path
 from datetime import datetime, timedelta
 from urllib.parse import quote as url_quote
@@ -20,7 +25,7 @@ load_dotenv()
 app = FastAPI()
 REQUEST_TIMEOUT_SECONDS = 15
 SERVER_BASE_URL = os.getenv("SERVER_BASE_URL", "https://nurse-ot-line.onrender.com")
-_export_cache: dict = {}  # token -> (file_bytes, filename)
+EXPORT_SECRET = os.getenv("EXPORT_SECRET", "nurse-ot-export-secret")
 DOCS_DIR = Path(__file__).resolve().parent / "docs"
 
 app.add_middleware(
@@ -351,6 +356,129 @@ def format_minutes(total_minutes):
 
 def is_approved_record(rec):
     return rec.get("status") == "已核准"
+
+
+# ── 匯出簽章工具 ──────────────────────────────────────────────────────────────
+
+def _make_export_token(user_id: str, start: str, end: str) -> str:
+    ts = str(int(time.time()))
+    payload = f"{user_id}:{start}:{end}:{ts}"
+    sig = hmac.new(EXPORT_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()[:20]
+    b64 = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+    return f"{b64}.{sig}"
+
+
+def _verify_export_token(token: str, max_age_seconds: int = 7200) -> tuple:
+    """Returns (start, end) if valid; raises 403 otherwise."""
+    try:
+        b64, sig = token.rsplit(".", 1)
+        pad = 4 - len(b64) % 4
+        if pad != 4:
+            b64 += "=" * pad
+        payload = base64.urlsafe_b64decode(b64).decode()
+        user_id, start, end, ts = payload.split(":")
+        expected = hmac.new(EXPORT_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()[:20]
+        if not hmac.compare_digest(sig, expected):
+            raise ValueError
+        if int(time.time()) - int(ts) > max_age_seconds:
+            raise ValueError
+        return start, end
+    except Exception:
+        raise HTTPException(status_code=403, detail="下載連結無效或已過期")
+
+
+# ── Excel 產生器 ──────────────────────────────────────────────────────────────
+
+_SHIFT_START_MIN = {"7-3": 420, "9-5": 540, "10-6": 600, "12-8": 720, "3-11": 900, "11-7": 1380}
+_SHIFT_END_MIN   = {"7-3": 900, "9-5": 1020, "10-6": 1080, "12-8": 1200, "3-11": 1380, "11-7": 1860}
+
+
+def _shift_hour(total_minutes: int) -> int:
+    h = (total_minutes // 60) % 24
+    return (h % 12) or 12
+
+
+def _build_overtime_excel(records: list, dates: list, nurse_names: list) -> bytes:
+    data: dict = {n: {d: [] for d in dates} for n in nurse_names}
+    for r in records:
+        name = r.get("name", "未知")
+        date = r["work_date"]
+        if name in data and date in data[name]:
+            data[name][date].append(r)
+
+    wb = openpyxl.Workbook()
+    HDR_FILL = PatternFill("solid", fgColor="1565C0")
+    HDR_FONT = Font(bold=True, color="FFFFFF")
+    CENTER   = Alignment(horizontal="center", vertical="center")
+
+    def hdr(ws, row, col, val):
+        c = ws.cell(row, col, val)
+        c.font, c.fill, c.alignment = HDR_FONT, HDR_FILL, CENTER
+
+    # Sheet 1: 每日加班時數
+    ws1 = wb.active
+    ws1.title = "每日加班時數"
+    hdr(ws1, 1, 1, "姓名")
+    for ci, d in enumerate(dates, 2):
+        dt = datetime.strptime(d, "%Y-%m-%d")
+        hdr(ws1, 1, ci, f"{dt.month}/{dt.day}")
+    total_col = len(dates) + 2
+    hdr(ws1, 1, total_col, "合計")
+
+    for ri, name in enumerate(nurse_names, 2):
+        ws1.cell(ri, 1, name).font = Font(bold=True)
+        row_total = 0
+        for ci, d in enumerate(dates, 2):
+            recs = data[name][d]
+            if not recs:
+                continue
+            mins = sum(r["overtime_minutes"] for r in recs)
+            row_total += mins
+            h, m = divmod(abs(mins), 60)
+            val = f"-{h}:{m:02d}" if mins < 0 else f"{h}:{m:02d}"
+            cell = ws1.cell(ri, ci, val)
+            cell.alignment = CENTER
+            cell.font = Font(color="C62828" if mins < 0 else "1A6B35")
+        if row_total:
+            h, m = divmod(abs(row_total), 60)
+            val = f"-{h}:{m:02d}" if row_total < 0 else f"{h}:{m:02d}"
+            tc = ws1.cell(ri, total_col, val)
+            tc.font = Font(bold=True, color="C62828" if row_total < 0 else "0D47A1")
+            tc.alignment = CENTER
+
+    ws1.column_dimensions["A"].width = 14
+    for ci in range(2, len(dates) + 3):
+        ws1.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = 8
+
+    # Sheet 2: 實際工作時段
+    ws2 = wb.create_sheet("實際工作時段")
+    hdr(ws2, 1, 1, "姓名")
+    for ci, d in enumerate(dates, 2):
+        dt = datetime.strptime(d, "%Y-%m-%d")
+        hdr(ws2, 1, ci, f"{dt.month}/{dt.day}")
+
+    for ri, name in enumerate(nurse_names, 2):
+        ws2.cell(ri, 1, name).font = Font(bold=True)
+        for ci, d in enumerate(dates, 2):
+            recs = data[name][d]
+            if not recs:
+                continue
+            shift = recs[0]["shift_type"]
+            total_ot = sum(r["overtime_minutes"] for r in recs)
+            if shift in _SHIFT_END_MIN:
+                display = f"{_shift_hour(_SHIFT_START_MIN[shift])}-{_shift_hour(_SHIFT_END_MIN[shift] + total_ot)}"
+            else:
+                display = shift
+            cell = ws2.cell(ri, ci, display)
+            cell.alignment = CENTER
+
+    ws2.column_dimensions["A"].width = 14
+    for ci in range(2, len(dates) + 2):
+        ws2.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = 8
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
 
 
 def format_record_line(rec, show_name=False):
@@ -802,42 +930,59 @@ def api_export_daily_overtime(request: Request, start: str, end: str):
 
 
 class ExportSendBody(BaseModel):
-    data: str   # base64-encoded xlsx
-    filename: str
     start: str
     end: str
 
 
 @app.post("/api/export/send-to-line")
-async def api_export_send_to_line(request: Request, body: ExportSendBody):
-    """接收前端產生的 base64 Excel，暫存後推播下載連結到使用者 LINE（admin only）。"""
+def api_export_send_to_line(request: Request, body: ExportSendBody):
+    """產生簽章 token 並推播下載連結到使用者 LINE（admin only）。"""
     user = require_admin(get_current_user(request))
 
     try:
-        file_bytes = base64.b64decode(body.data)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid base64 data")
+        datetime.strptime(body.start, "%Y-%m-%d")
+        datetime.strptime(body.end, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format")
+    if body.start > body.end:
+        raise HTTPException(status_code=400, detail="end must be >= start")
 
-    token = uuid.uuid4().hex
-    _export_cache[token] = (file_bytes, body.filename)
-
+    token = _make_export_token(user["id"], body.start, body.end)
     download_url = f"{SERVER_BASE_URL}/api/export/download/{token}"
     push_message(
         user["line_user_id"],
         f"📊 加班統計 Excel 已準備好\n"
         f"區間：{body.start} ～ {body.end}\n\n"
-        f"點此下載（限單次使用）：\n{download_url}",
+        f"點此下載（2小時內有效）：\n{download_url}",
     )
     return {"ok": True}
 
 
 @app.get("/api/export/download/{token}")
 def api_export_download(token: str):
-    """憑 token 下載暫存的 Excel 檔案（單次使用）。"""
-    entry = _export_cache.pop(token, None)
-    if entry is None:
-        raise HTTPException(status_code=404, detail="檔案不存在或已被下載過")
-    file_bytes, filename = entry
+    """驗證簽章 token，即時產生 Excel 並回傳。"""
+    start, end = _verify_export_token(token)
+
+    start_dt = datetime.strptime(start, "%Y-%m-%d")
+    end_dt   = datetime.strptime(end,   "%Y-%m-%d")
+
+    url = (f"{SUPABASE_URL}/rest/v1/overtime_history"
+           f"?work_date=gte.{start}&work_date=lte.{end}"
+           f"&order=work_date.asc,name.asc&limit=10000&select=*")
+    resp = requests.get(url, headers=SUPABASE_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS)
+    if resp.status_code != 200:
+        raise HTTPException(status_code=500, detail="Query failed")
+    records = resp.json()
+
+    dates, cur = [], start_dt
+    while cur <= end_dt:
+        dates.append(cur.strftime("%Y-%m-%d"))
+        cur += timedelta(days=1)
+
+    nurse_names = sorted({r["name"] for r in records})
+    file_bytes  = _build_overtime_excel(records, dates, nurse_names)
+
+    filename     = f"加班統計_{start}_{end}.xlsx"
     encoded_name = url_quote(filename)
     return Response(
         content=file_bytes,
