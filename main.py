@@ -157,7 +157,7 @@ def update_user_role(user_id, role):
 
 
 def get_all_users():
-    url = f"{SUPABASE_URL}/rest/v1/nurses?order=name.asc&select=*"
+    url = f"{SUPABASE_URL}/rest/v1/nurses?order=sort_order.asc.nullslast,name.asc&select=*"
     response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
     if response.status_code != 200:
         return None
