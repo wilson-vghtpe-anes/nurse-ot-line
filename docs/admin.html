@@ -359,9 +359,7 @@
   <div class="card">
     <div class="card-title">匯出加班統計 Excel</div>
     <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.6">
-      選擇日期區間後下載 Excel，包含兩個工作表：<br>
-      <b>① 每日加班時數</b>（橫軸為日期、一行一人）<br>
-      <b>② 實際工作時段</b>（加計加班後的班別時段，如 7-6）
+      包含兩個工作表：<b>① 每日加班時數</b>、<b>② 實際工作時段</b>（無加班時顯示排班班別）
     </p>
     <div class="form-group">
       <label class="form-label">開始日期</label>
@@ -370,6 +368,20 @@
     <div class="form-group">
       <label class="form-label">結束日期</label>
       <input type="date" class="form-control" id="export-end">
+    </div>
+    <div class="form-group">
+      <label class="form-label">附加欄位</label>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;font-size:14px;padding:8px 14px;border:1.5px solid #e0e0e0;border-radius:20px;cursor:pointer">
+          <input type="checkbox" class="export-col-check" value="staff_code"> 班碼
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:14px;padding:8px 14px;border:1.5px solid #e0e0e0;border-radius:20px;cursor:pointer">
+          <input type="checkbox" class="export-col-check" value="card_no"> 卡號
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:14px;padding:8px 14px;border:1.5px solid #e0e0e0;border-radius:20px;cursor:pointer">
+          <input type="checkbox" class="export-col-check" value="employee_no"> 職號
+        </label>
+      </div>
     </div>
     <button type="button" class="btn-submit" id="export-btn" onclick="exportExcel()">傳送到 LINE</button>
   </div>
@@ -919,9 +931,10 @@
     btn.textContent = "傳送中...";
     loading(true);
     try {
+      const cols = [...document.querySelectorAll(".export-col-check:checked")].map(c => c.value);
       const res = await apiFetch("/api/export/send-to-line", {
         method: "POST",
-        body: JSON.stringify({ start, end }),
+        body: JSON.stringify({ start, end, cols }),
       });
       if (!res.ok) throw new Error(await getErrorMessage(res, "傳送失敗"));
       showToast("已傳送下載連結到 LINE 聊天室");

@@ -391,6 +391,8 @@ def _verify_export_token(token: str, max_age_seconds: int = 7200) -> tuple:
 
 _SHIFT_START_MIN = {"7-3": 420, "9-5": 540, "10-6": 600, "12-8": 720, "3-11": 900, "11-7": 1380}
 _SHIFT_END_MIN   = {"7-3": 900, "9-5": 1020, "10-6": 1080, "12-8": 1200, "3-11": 1380, "11-7": 1860}
+_COL_LABELS      = {"staff_code": "班碼", "card_no": "卡號", "employee_no": "職號"}
+_VALID_COLS      = set(_COL_LABELS)
 
 
 def _shift_hour(total_minutes: int) -> int:
@@ -398,83 +400,122 @@ def _shift_hour(total_minutes: int) -> int:
     return (h % 12) or 12
 
 
-def _build_overtime_excel(records: list, dates: list, nurse_names: list) -> bytes:
-    data: dict = {n: {d: [] for d in dates} for n in nurse_names}
-    for r in records:
-        name = r.get("name", "未知")
-        date = r["work_date"]
-        if name in data and date in data[name]:
-            data[name][date].append(r)
+def _build_overtime_excel(
+    nurses: list,       # [{id, name, staff_code, card_no, employee_no, sort_order}]
+    ot_records: list,   # overtime_history records
+    sched_records: list,# schedules records [{user_id, schedule_date, shift_type}]
+    dates: list,
+    extra_cols: list,   # subset of _VALID_COLS, in display order
+) -> bytes:
+    # Build lookup dicts
+    ot_by_uid: dict = {}
+    for r in ot_records:
+        uid, date = r["user_id"], r["work_date"]
+        ot_by_uid.setdefault(uid, {}).setdefault(date, []).append(r)
+
+    sched_by_uid: dict = {}
+    for r in sched_records:
+        uid, date = r["user_id"], r["schedule_date"]
+        sched_by_uid.setdefault(uid, {})[date] = r["shift_type"]
 
     wb = openpyxl.Workbook()
     HDR_FILL = PatternFill("solid", fgColor="1565C0")
     HDR_FONT = Font(bold=True, color="FFFFFF")
     CENTER   = Alignment(horizontal="center", vertical="center")
+    BOLD     = Font(bold=True)
 
     def hdr(ws, row, col, val):
         c = ws.cell(row, col, val)
         c.font, c.fill, c.alignment = HDR_FONT, HDR_FILL, CENTER
 
-    # Sheet 1: 每日加班時數
+    def set_col_width(ws, col_idx, width):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
+
+    fixed_count  = 1 + len(extra_cols)      # 姓名 + optional cols
+    date_start   = fixed_count + 1
+
+    date_labels = [
+        f"{datetime.strptime(d, '%Y-%m-%d').month}/{datetime.strptime(d, '%Y-%m-%d').day}"
+        for d in dates
+    ]
+
+    def write_fixed_header(ws):
+        hdr(ws, 1, 1, "姓名")
+        for ei, col in enumerate(extra_cols, 2):
+            hdr(ws, 1, ei, _COL_LABELS[col])
+
+    def write_fixed_row(ws, ri, nurse):
+        ws.cell(ri, 1, nurse["name"]).font = BOLD
+        for ei, col in enumerate(extra_cols, 2):
+            ws.cell(ri, ei, nurse.get(col) or "")
+
+    def set_fixed_widths(ws):
+        set_col_width(ws, 1, 12)
+        for ei in range(2, fixed_count + 1):
+            set_col_width(ws, ei, 10)
+
+    # ── Sheet 1: 每日加班時數 ─────────────────────────────────────────────────
     ws1 = wb.active
     ws1.title = "每日加班時數"
-    hdr(ws1, 1, 1, "姓名")
-    for ci, d in enumerate(dates, 2):
-        dt = datetime.strptime(d, "%Y-%m-%d")
-        hdr(ws1, 1, ci, f"{dt.month}/{dt.day}")
-    total_col = len(dates) + 2
+    write_fixed_header(ws1)
+    for ci, label in enumerate(date_labels, date_start):
+        hdr(ws1, 1, ci, label)
+    total_col = date_start + len(dates)
     hdr(ws1, 1, total_col, "合計")
 
-    for ri, name in enumerate(nurse_names, 2):
-        ws1.cell(ri, 1, name).font = Font(bold=True)
+    for ri, nurse in enumerate(nurses, 2):
+        uid = nurse["id"]
+        write_fixed_row(ws1, ri, nurse)
         row_total = 0
-        for ci, d in enumerate(dates, 2):
-            recs = data[name][d]
+        for ci, d in enumerate(dates, date_start):
+            recs = ot_by_uid.get(uid, {}).get(d, [])
             if not recs:
                 continue
             mins = sum(r["overtime_minutes"] for r in recs)
             row_total += mins
             h, m = divmod(abs(mins), 60)
-            val = f"-{h}:{m:02d}" if mins < 0 else f"{h}:{m:02d}"
+            val  = f"-{h}:{m:02d}" if mins < 0 else f"{h}:{m:02d}"
             cell = ws1.cell(ri, ci, val)
             cell.alignment = CENTER
             cell.font = Font(color="C62828" if mins < 0 else "1A6B35")
         if row_total:
             h, m = divmod(abs(row_total), 60)
-            val = f"-{h}:{m:02d}" if row_total < 0 else f"{h}:{m:02d}"
-            tc = ws1.cell(ri, total_col, val)
-            tc.font = Font(bold=True, color="C62828" if row_total < 0 else "0D47A1")
+            val  = f"-{h}:{m:02d}" if row_total < 0 else f"{h}:{m:02d}"
+            tc   = ws1.cell(ri, total_col, val)
+            tc.font      = Font(bold=True, color="C62828" if row_total < 0 else "0D47A1")
             tc.alignment = CENTER
 
-    ws1.column_dimensions["A"].width = 14
-    for ci in range(2, len(dates) + 3):
-        ws1.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = 8
+    set_fixed_widths(ws1)
+    for ci in range(date_start, total_col + 1):
+        set_col_width(ws1, ci, 8)
 
-    # Sheet 2: 實際工作時段
+    # ── Sheet 2: 實際工作時段 ─────────────────────────────────────────────────
     ws2 = wb.create_sheet("實際工作時段")
-    hdr(ws2, 1, 1, "姓名")
-    for ci, d in enumerate(dates, 2):
-        dt = datetime.strptime(d, "%Y-%m-%d")
-        hdr(ws2, 1, ci, f"{dt.month}/{dt.day}")
+    write_fixed_header(ws2)
+    for ci, label in enumerate(date_labels, date_start):
+        hdr(ws2, 1, ci, label)
 
-    for ri, name in enumerate(nurse_names, 2):
-        ws2.cell(ri, 1, name).font = Font(bold=True)
-        for ci, d in enumerate(dates, 2):
-            recs = data[name][d]
-            if not recs:
-                continue
-            shift = recs[0]["shift_type"]
-            total_ot = sum(r["overtime_minutes"] for r in recs)
-            if shift in _SHIFT_END_MIN:
-                display = f"{_shift_hour(_SHIFT_START_MIN[shift])}-{_shift_hour(_SHIFT_END_MIN[shift] + total_ot)}"
+    for ri, nurse in enumerate(nurses, 2):
+        uid = nurse["id"]
+        write_fixed_row(ws2, ri, nurse)
+        for ci, d in enumerate(dates, date_start):
+            ot_recs = ot_by_uid.get(uid, {}).get(d, [])
+            if ot_recs:
+                shift    = ot_recs[0]["shift_type"]
+                total_ot = sum(r["overtime_minutes"] for r in ot_recs)
+                if shift in _SHIFT_END_MIN:
+                    display = f"{_shift_hour(_SHIFT_START_MIN[shift])}-{_shift_hour(_SHIFT_END_MIN[shift] + total_ot)}"
+                else:
+                    display = shift
             else:
-                display = shift
-            cell = ws2.cell(ri, ci, display)
-            cell.alignment = CENTER
+                display = sched_by_uid.get(uid, {}).get(d, "")
+            if display:
+                cell = ws2.cell(ri, ci, display)
+                cell.alignment = CENTER
 
-    ws2.column_dimensions["A"].width = 14
-    for ci in range(2, len(dates) + 2):
-        ws2.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = 8
+    set_fixed_widths(ws2)
+    for ci in range(date_start, date_start + len(dates)):
+        set_col_width(ws2, ci, 8)
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -932,6 +973,7 @@ def api_export_daily_overtime(request: Request, start: str, end: str):
 class ExportSendBody(BaseModel):
     start: str
     end: str
+    cols: list = []  # optional: ["staff_code", "card_no", "employee_no"]
 
 
 @app.post("/api/export/send-to-line")
@@ -948,7 +990,11 @@ def api_export_send_to_line(request: Request, body: ExportSendBody):
         raise HTTPException(status_code=400, detail="end must be >= start")
 
     token = _make_export_token(user["id"], body.start, body.end)
-    download_url = f"{SERVER_BASE_URL}/api/export/download/{token}"
+    selected_cols = [c for c in body.cols if c in _VALID_COLS]
+    download_url  = f"{SERVER_BASE_URL}/api/export/download/{token}"
+    if selected_cols:
+        download_url += f"?cols={url_quote(','.join(selected_cols))}"
+
     push_message(
         user["line_user_id"],
         f"📊 加班統計 Excel 已準備好\n"
@@ -959,29 +1005,52 @@ def api_export_send_to_line(request: Request, body: ExportSendBody):
 
 
 @app.get("/api/export/download/{token}")
-def api_export_download(token: str):
+def api_export_download(token: str, cols: str = ""):
     """驗證簽章 token，即時產生 Excel 並回傳。"""
     start, end = _verify_export_token(token)
+
+    extra_cols = [c for c in cols.split(",") if c in _VALID_COLS] if cols else []
 
     start_dt = datetime.strptime(start, "%Y-%m-%d")
     end_dt   = datetime.strptime(end,   "%Y-%m-%d")
 
-    url = (f"{SUPABASE_URL}/rest/v1/overtime_history"
-           f"?work_date=gte.{start}&work_date=lte.{end}"
-           f"&order=work_date.asc,name.asc&limit=10000&select=*")
-    resp = requests.get(url, headers=SUPABASE_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS)
-    if resp.status_code != 200:
-        raise HTTPException(status_code=500, detail="Query failed")
-    records = resp.json()
+    # 查所有護理師（依 sort_order 排序）
+    nurses_resp = requests.get(
+        f"{SUPABASE_URL}/rest/v1/nurses"
+        f"?select=id,name,staff_code,card_no,employee_no,sort_order"
+        f"&role=neq.pending&order=sort_order.asc,name.asc&limit=1000",
+        headers=SUPABASE_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    if nurses_resp.status_code != 200:
+        raise HTTPException(status_code=500, detail="Query nurses failed")
+    nurses = nurses_resp.json()
+
+    # 查加班歷史
+    ot_resp = requests.get(
+        f"{SUPABASE_URL}/rest/v1/overtime_history"
+        f"?work_date=gte.{start}&work_date=lte.{end}"
+        f"&order=work_date.asc&limit=100000&select=*",
+        headers=SUPABASE_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    if ot_resp.status_code != 200:
+        raise HTTPException(status_code=500, detail="Query overtime failed")
+    ot_records = ot_resp.json()
+
+    # 查排班（有資料才用，查不到也不 crash）
+    sched_resp = requests.get(
+        f"{SUPABASE_URL}/rest/v1/schedules"
+        f"?schedule_date=gte.{start}&schedule_date=lte.{end}"
+        f"&select=user_id,schedule_date,shift_type&limit=100000",
+        headers=SUPABASE_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    sched_records = sched_resp.json() if sched_resp.status_code == 200 else []
 
     dates, cur = [], start_dt
     while cur <= end_dt:
         dates.append(cur.strftime("%Y-%m-%d"))
         cur += timedelta(days=1)
 
-    nurse_names = sorted({r["name"] for r in records})
-    file_bytes  = _build_overtime_excel(records, dates, nurse_names)
-
+    file_bytes   = _build_overtime_excel(nurses, ot_records, sched_records, dates, extra_cols)
     filename     = f"加班統計_{start}_{end}.xlsx"
     encoded_name = url_quote(filename)
     return Response(
