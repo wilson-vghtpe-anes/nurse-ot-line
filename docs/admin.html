@@ -215,6 +215,7 @@
   <div class="tab" onclick="switchTab('monthly')">統計</div>
   <div class="tab" onclick="switchTab('members')">成員</div>
   <div class="tab" onclick="switchTab('review-log')">審核紀錄</div>
+  <div class="tab" onclick="switchTab('export')">匯出</div>
 </div>
 
 <div class="panel" id="panel-submit">
@@ -354,6 +355,26 @@
   </div>
 </div>
 
+<div class="panel" id="panel-export">
+  <div class="card">
+    <div class="card-title">匯出加班統計 Excel</div>
+    <p style="font-size:13px;color:#666;margin-bottom:16px;line-height:1.6">
+      選擇日期區間後下載 Excel，包含兩個工作表：<br>
+      <b>① 每日加班時數</b>（橫軸為日期、一行一人）<br>
+      <b>② 實際工作時段</b>（加計加班後的班別時段，如 7-6）
+    </p>
+    <div class="form-group">
+      <label class="form-label">開始日期</label>
+      <input type="date" class="form-control" id="export-start">
+    </div>
+    <div class="form-group">
+      <label class="form-label">結束日期</label>
+      <input type="date" class="form-control" id="export-end">
+    </div>
+    <button type="button" class="btn-submit" id="export-btn" onclick="exportExcel()">下載 Excel</button>
+  </div>
+</div>
+
 <div class="panel" id="panel-review-log">
   <div class="filter-row">
     <div class="filter-chip active" onclick="setReviewFilter('month', this)">當月</div>
@@ -378,6 +399,7 @@
   </div>
 </div>
 
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="share.js"></script>
 <script>
 
@@ -870,11 +892,12 @@
   }
 
   function switchTab(tab) {
-    ["submit", "pending", "all", "monthly", "members", "review-log"].forEach((name) => {
+    const TABS = ["submit", "pending", "all", "monthly", "members", "review-log", "export"];
+    TABS.forEach((name) => {
       document.getElementById(`panel-${name}`).classList.toggle("active", name === tab);
     });
     document.querySelectorAll(".tab").forEach((el, index) => {
-      el.classList.toggle("active", ["submit", "pending", "all", "monthly", "members", "review-log"][index] === tab);
+      el.classList.toggle("active", TABS[index] === tab);
     });
 
     if (tab === "submit") {
@@ -884,6 +907,80 @@
     else if (tab === "monthly") loadMonthly();
     else if (tab === "members") loadMembers();
     else if (tab === "review-log") loadReviewLog();
+  }
+
+  const SHIFT_START_MIN = { "7-3":420, "9-5":540, "10-6":600, "12-8":720, "3-11":900, "11-7":1380 };
+  const SHIFT_END_MIN   = { "7-3":900, "9-5":1020,"10-6":1080,"12-8":1200,"3-11":1380,"11-7":1860 };
+
+  function toShiftHour(totalMin) {
+    const h = Math.floor(totalMin / 60) % 24;
+    return (h % 12) || 12;
+  }
+
+  function computeShiftRange(shiftType, overtimeMinutes) {
+    if (!SHIFT_END_MIN[shiftType]) return shiftType;
+    return `${toShiftHour(SHIFT_START_MIN[shiftType])}-${toShiftHour(SHIFT_END_MIN[shiftType] + overtimeMinutes)}`;
+  }
+
+  function fmtMins(mins) {
+    if (!mins) return "";
+    const h = Math.floor(Math.abs(mins) / 60);
+    const m = Math.abs(mins) % 60;
+    return (mins < 0 ? "-" : "") + h + ":" + String(m).padStart(2, "0");
+  }
+
+  async function exportExcel() {
+    const start = document.getElementById("export-start").value;
+    const end   = document.getElementById("export-end").value;
+    if (!start || !end) { showToast("請選擇開始與結束日期", false); return; }
+    if (start > end)    { showToast("結束日期須晚於開始日期", false); return; }
+
+    const btn = document.getElementById("export-btn");
+    btn.disabled = true;
+    btn.textContent = "產生中...";
+    loading(true);
+    try {
+      const res = await apiFetch(`/api/export/daily-overtime?start=${start}&end=${end}`);
+      if (!res.ok) throw new Error(await getErrorMessage(res, "匯出失敗"));
+      const data = await res.json();
+
+      const { dates, nurses, overtime, shifts } = data;
+      const dateHeaders = dates.map(d => { const dt = new Date(d + "T00:00:00"); return `${dt.getMonth()+1}/${dt.getDate()}`; });
+
+      const s1 = [["姓名", ...dateHeaders, "合計"]];
+      for (const name of nurses) {
+        let total = 0;
+        const row = [name, ...dates.map(d => {
+          const m = overtime[name]?.[d];
+          if (m == null) return "";
+          total += m;
+          return fmtMins(m);
+        }), ""];
+        row[row.length - 1] = fmtMins(total);
+        s1.push(row);
+      }
+
+      const s2 = [["姓名", ...dateHeaders]];
+      for (const name of nurses) {
+        s2.push([name, ...dates.map(d => {
+          const m = overtime[name]?.[d];
+          const sh = shifts[name]?.[d];
+          return (m != null && sh) ? computeShiftRange(sh, m) : "";
+        })]);
+      }
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(s1), "每日加班時數");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(s2), "實際工作時段");
+      XLSX.writeFile(wb, `加班統計_${start}_${end}.xlsx`);
+      showToast("已下載 Excel");
+    } catch (err) {
+      showToast(err.message, false);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "下載 Excel";
+      loading(false);
+    }
   }
 
   // ── 審核紀錄 ──────────────────────────────────────────────────────────────
